@@ -41,6 +41,7 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
+  Tag,
 } from "lucide-react";
 
 const API_URL = "http://localhost:5001/api";
@@ -83,7 +84,6 @@ export default function App() {
 
   // Filter & Form States
   const [searchQuery, setSearchQuery] = useState("");
-  // const [purchaseSearch, setPurchaseSearch] = useState("");
   const [ingForm, setIngForm] = useState({ name: "", price: "", size: "", unit: "gr" });
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState(null);
@@ -119,10 +119,10 @@ export default function App() {
   const [purchaseEndDate, setPurchaseEndDate] = useState("");
   const [purchaseCategoryFilter, setPurchaseCategoryFilter] = useState("all");
   const [purchaseSortField, setPurchaseSortField] = useState("purchase_date");
-  const [purchaseSortOrder, setPurchaseSortOrder] = useState("desc"); // "asc" | "desc"
+  const [purchaseSortOrder, setPurchaseSortOrder] = useState("desc");
 
   // ----------------------------------------------------
-  // 4. POS KASIR STATE
+  // 4. POS KASIR STATE DENGAN DISKON/VOUCHER
   // ----------------------------------------------------
   const [cart, setCart] = useState([]);
   const [customerName, setCustomerName] = useState("");
@@ -131,6 +131,8 @@ export default function App() {
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [discountType, setDiscountType] = useState("none"); // "none" | "percent" | "fixed_price" | "nominal"
+  const [discountValue, setDiscountValue] = useState("");
 
   const getAuthHeaders = () => ({
     "Content-Type": "application/json",
@@ -308,6 +310,8 @@ export default function App() {
     setActiveTab("pos");
     setIsSidebarOpen(false);
     setCart([]);
+    setDiscountType("none");
+    setDiscountValue("");
   };
 
   // ----------------------------------------------------
@@ -356,18 +360,35 @@ export default function App() {
 
   const cartSubtotal = cart.reduce((sum, it) => sum + it.price * it.qty, 0);
   const cartCostTotal = cart.reduce((sum, it) => sum + it.cost * it.qty, 0);
-  const cartProfitEst = cartSubtotal - cartCostTotal;
+
+  // Kalkulasi Diskon & Voucher Kasir
+  const calculateDiscountAmount = () => {
+    const val = parseFloat(discountValue) || 0;
+    if (discountType === "percent") {
+      const pct = Math.min(100, Math.max(0, val));
+      return Math.round((cartSubtotal * pct) / 100);
+    } else if (discountType === "fixed_price") {
+      return Math.max(0, cartSubtotal - Math.max(0, val));
+    } else if (discountType === "nominal") {
+      return Math.min(cartSubtotal, Math.max(0, val));
+    }
+    return 0;
+  };
+
+  const discountAmount = calculateDiscountAmount();
+  const finalCartTotal = Math.max(0, cartSubtotal - discountAmount);
+  const cartProfitEst = finalCartTotal - cartCostTotal;
 
   const openCheckoutModal = () => {
     if (cart.length === 0) return alert("Keranjang pesanan masih kosong!");
-    setPaidAmount(cartSubtotal.toString());
+    setPaidAmount(finalCartTotal.toString());
     setIsCheckoutModalOpen(true);
   };
 
   const handleProcessPayment = async (e) => {
     e.preventDefault();
-    const paidNum = Number(paidAmount) || cartSubtotal;
-    if (paymentMethod === "cash" && paidNum < cartSubtotal) {
+    const paidNum = Number(paidAmount) || finalCartTotal;
+    if (paymentMethod === "cash" && paidNum < finalCartTotal) {
       return alert("Nominal uang pembayaran kurang!");
     }
 
@@ -380,7 +401,12 @@ export default function App() {
           customerName: customerName.trim() || "Pelanggan",
           paymentMethod,
           items: cart,
-          paidAmount: paymentMethod === "cash" ? paidNum : cartSubtotal,
+          subtotal: cartSubtotal,
+          discountType,
+          discountValue: parseFloat(discountValue) || 0,
+          discountAmount,
+          totalAmount: finalCartTotal,
+          paidAmount: paymentMethod === "cash" ? paidNum : finalCartTotal,
         }),
       });
 
@@ -389,6 +415,8 @@ export default function App() {
         setCompletedOrder(data.order);
         setCart([]);
         setCustomerName("");
+        setDiscountType("none");
+        setDiscountValue("");
         setIsCheckoutModalOpen(false);
         fetchOrders();
         fetchReports();
@@ -556,7 +584,6 @@ export default function App() {
   const processedPurchases = useMemo(() => {
     let result = [...purchasesList];
 
-    // 1. Filter Pencarian Text
     if (purchaseSearch.trim()) {
       const q = purchaseSearch.toLowerCase();
       result = result.filter(
@@ -567,12 +594,10 @@ export default function App() {
       );
     }
 
-    // 2. Filter Kategori
     if (purchaseCategoryFilter !== "all") {
       result = result.filter((p) => p.category === purchaseCategoryFilter);
     }
 
-    // 3. Filter Rentang Tanggal
     if (purchaseStartDate) {
       result = result.filter((p) => {
         const itemDate = p.purchase_date ? p.purchase_date.slice(0, 10) : "";
@@ -587,7 +612,6 @@ export default function App() {
       });
     }
 
-    // 4. Sortable Table Logic
     result.sort((a, b) => {
       let aVal = a[purchaseSortField];
       let bVal = b[purchaseSortField];
@@ -1102,7 +1126,19 @@ export default function App() {
               </div>
 
               <div className="border-t border-dashed border-black pt-2 space-y-1 text-right font-bold">
-                <div className="flex justify-between"><span>TOTAL:</span><span>Rp {completedOrder.totalAmount.toLocaleString("id-ID")}</span></div>
+                {completedOrder.subtotal && completedOrder.subtotal !== completedOrder.totalAmount && (
+                  <div className="flex justify-between font-normal text-[11px]">
+                    <span>Subtotal:</span>
+                    <span>Rp {Number(completedOrder.subtotal).toLocaleString("id-ID")}</span>
+                  </div>
+                )}
+                {Number(completedOrder.discountAmount) > 0 && (
+                  <div className="flex justify-between font-normal text-[11px]">
+                    <span>Diskon:</span>
+                    <span>- Rp {Number(completedOrder.discountAmount).toLocaleString("id-ID")}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm"><span>TOTAL:</span><span>Rp {completedOrder.totalAmount.toLocaleString("id-ID")}</span></div>
                 <div className="flex justify-between font-normal text-[11px]"><span>Bayar ({completedOrder.paymentMethod.toUpperCase()}):</span><span>Rp {completedOrder.paidAmount.toLocaleString("id-ID")}</span></div>
                 <div className="flex justify-between font-normal text-[11px]"><span>Kembali:</span><span>Rp {completedOrder.changeAmount.toLocaleString("id-ID")}</span></div>
               </div>
@@ -1124,7 +1160,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* TAB 1: POS */}
+              {/* TAB 1: POS (DENGAN VOUCHER/DISKON) */}
               {activeTab === "pos" && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Grid Menu Produk */}
@@ -1170,7 +1206,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Cart Drawer Kasir */}
+                  {/* Cart Drawer Kasir dengan Diskon */}
                   <div className="lg:col-span-5 space-y-4">
                     <div className="bg-white p-5 rounded-3xl shadow-xs border border-slate-200 space-y-4">
                       <div className="flex items-center justify-between border-b pb-3">
@@ -1193,7 +1229,7 @@ export default function App() {
                         onChange={(e) => setCustomerName(e.target.value)}
                       />
 
-                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                         {cart.length === 0 ? (
                           <div className="p-8 text-center text-xs text-slate-400 italic">Keranjang kosong. Klik menu untuk menambahkan pesanan.</div>
                         ) : (
@@ -1221,7 +1257,104 @@ export default function App() {
                         )}
                       </div>
 
+                      {/* Voucher / Diskon Control */}
+                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-1.5 font-bold text-slate-800">
+                            <Tag className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Voucher / Diskon Pesanan</span>
+                          </div>
+                          {discountType !== "none" && (
+                            <button
+                              type="button"
+                              onClick={() => { setDiscountType("none"); setDiscountValue(""); }}
+                              className="text-[10px] text-red-500 hover:underline font-semibold"
+                            >
+                              Hapus Diskon
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Opsi Tipe Diskon */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { setDiscountType("percent"); setDiscountValue(discountValue || "10"); }}
+                            className={`py-1.5 px-2 rounded-xl font-bold text-[11px] border transition ${
+                              discountType === "percent"
+                                ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            Persen (%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDiscountType("fixed_price"); setDiscountValue(discountValue || cartSubtotal.toString()); }}
+                            className={`py-1.5 px-2 rounded-xl font-bold text-[11px] border transition ${
+                              discountType === "fixed_price"
+                                ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            Harga Jadi (Rp)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDiscountType("nominal"); setDiscountValue(discountValue || "5000"); }}
+                            className={`py-1.5 px-2 rounded-xl font-bold text-[11px] border transition ${
+                              discountType === "nominal"
+                                ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            Potongan (Rp)
+                          </button>
+                        </div>
+
+                        {/* Input Nilai Diskon */}
+                        {discountType !== "none" && (
+                          <div className="pt-1 space-y-1">
+                            <label className="block text-[10px] font-bold text-slate-600">
+                              {discountType === "percent" && "Masukkan Persentase Diskon (%):"}
+                              {discountType === "fixed_price" && "Masukkan Harga Jual Akhir Setelah Diskon (Rp):"}
+                              {discountType === "nominal" && "Masukkan Nominal Potongan Harga (Rp):"}
+                            </label>
+                            <div className="flex gap-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                max={discountType === "percent" ? 100 : undefined}
+                                className="flex-1 p-2 bg-white border border-slate-300 rounded-xl font-bold outline-none focus:ring-2 focus:ring-amber-500 text-xs"
+                                placeholder={discountType === "percent" ? "misal: 10 atau 20" : "misal: 25000"}
+                                value={discountValue}
+                                onChange={(e) => setDiscountValue(e.target.value)}
+                              />
+                              {discountType === "percent" && (
+                                <div className="flex gap-1">
+                                  <button type="button" onClick={() => setDiscountValue("10")} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-[10px] font-bold">10%</button>
+                                  <button type="button" onClick={() => setDiscountValue("20")} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-[10px] font-bold">20%</button>
+                                  <button type="button" onClick={() => setDiscountValue("50")} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-[10px] font-bold">50%</button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="bg-slate-900 text-white p-4 rounded-2xl space-y-2 text-xs">
+                        <div className="flex justify-between text-slate-400">
+                          <span>Subtotal Belanja:</span>
+                          <span>Rp {cartSubtotal.toLocaleString("id-ID")}</span>
+                        </div>
+                        {discountAmount > 0 && (
+                          <div className="flex justify-between text-rose-400 font-bold">
+                            <span>
+                              Diskon {discountType === "percent" ? `(${discountValue}%)` : ""}:
+                            </span>
+                            <span>- Rp {discountAmount.toLocaleString("id-ID")}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-slate-400">
                           <span>Total Modal (HPP):</span>
                           <span>Rp {Math.round(cartCostTotal).toLocaleString("id-ID")}</span>
@@ -1231,8 +1364,8 @@ export default function App() {
                           <span>Rp {Math.round(cartProfitEst).toLocaleString("id-ID")}</span>
                         </div>
                         <div className="border-t border-slate-800 pt-2 flex justify-between items-baseline">
-                          <span className="font-bold text-sm">TOTAL TAGIHAN:</span>
-                          <span className="text-xl font-black text-white">Rp {cartSubtotal.toLocaleString("id-ID")}</span>
+                          <span className="font-bold text-sm">TOTAL AKHIR:</span>
+                          <span className="text-xl font-black text-white">Rp {finalCartTotal.toLocaleString("id-ID")}</span>
                         </div>
                       </div>
 
@@ -1355,6 +1488,8 @@ export default function App() {
                                         orderNumber: ord.order_number,
                                         customerName: ord.customer_name,
                                         paymentMethod: ord.payment_method,
+                                        subtotal: Number(ord.subtotal) || Number(ord.total_amount),
+                                        discountAmount: Number(ord.discount_amount) || 0,
                                         totalAmount: Number(ord.total_amount),
                                         paidAmount: Number(ord.paid_amount),
                                         changeAmount: Number(ord.change_amount),
@@ -1380,9 +1515,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* ====================================================
-                  TAB 3: MODUL BELANJA BAHAN (DENGAN FILTER TANGGAL & SORTABLE TABLE)
-              ==================================================== */}
+              {/* TAB 3: MODUL BELANJA BAHAN */}
               {activeTab === "purchases" && isSuperadmin && (
                 <div className="space-y-6">
                   {/* Perbandingan Omset vs Pengeluaran Riil */}
@@ -1574,7 +1707,7 @@ export default function App() {
                     </form>
                   </div>
 
-                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN (SORTABLE + FILTER TANGGAL LENGKAP) */}
+                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
                       <div>
@@ -1582,9 +1715,7 @@ export default function App() {
                         <p className="text-xs text-slate-500">Klik judul kolom tabel di bawah untuk mengurutkan (sort) data.</p>
                       </div>
 
-                      {/* Filter Controls Bar */}
                       <div className="flex flex-wrap items-center gap-2">
-                        {/* Filter Rentang Tanggal */}
                         <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
                           <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
                           <input
@@ -1604,7 +1735,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Filter Kategori */}
                         <select
                           className="p-2 border rounded-xl text-xs bg-slate-50 focus:bg-white outline-none"
                           value={purchaseCategoryFilter}
@@ -1617,7 +1747,6 @@ export default function App() {
                           <option value="Lain-lain">Lain-lain</option>
                         </select>
 
-                        {/* Search Input */}
                         <div className="relative">
                           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                           <input
@@ -1629,7 +1758,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Reset Filter Button */}
                         {(purchaseSearch || purchaseStartDate || purchaseEndDate || purchaseCategoryFilter !== "all") && (
                           <button
                             onClick={resetPurchaseFilter}
@@ -1643,7 +1771,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Banner Subtotal Hasil Filter */}
                     <div className="flex flex-wrap items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
                       <div className="text-slate-600">
                         Menampilkan <span className="font-bold text-slate-900">{processedPurchases.length}</span> dari total {purchasesList.length} transaksi belanja
@@ -1656,116 +1783,52 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SORTABLE TABLE */}
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
                         <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
                           <tr>
-                            {/* Sortable Tanggal */}
-                            <th
-                              onClick={() => handleSortPurchase("purchase_date")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("purchase_date")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Tanggal</span>
-                                {purchaseSortField === "purchase_date" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "purchase_date" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Nama Barang */}
-                            <th
-                              onClick={() => handleSortPurchase("item_name")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("item_name")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Nama Barang</span>
-                                {purchaseSortField === "item_name" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "item_name" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Kategori */}
-                            <th
-                              onClick={() => handleSortPurchase("category")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("category")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Kategori</span>
-                                {purchaseSortField === "category" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "category" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Qty */}
-                            <th
-                              onClick={() => handleSortPurchase("qty")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("qty")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Qty / Satuan</span>
-                                {purchaseSortField === "qty" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "qty" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Harga Satuan */}
-                            <th
-                              onClick={() => handleSortPurchase("unit_price")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("unit_price")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Harga Satuan</span>
-                                {purchaseSortField === "unit_price" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "unit_price" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Total Pengeluaran */}
-                            <th
-                              onClick={() => handleSortPurchase("total_amount")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("total_amount")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Total Biaya</span>
-                                {purchaseSortField === "total_amount" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "total_amount" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
-                            {/* Sortable Supplier */}
-                            <th
-                              onClick={() => handleSortPurchase("supplier")}
-                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
-                            >
+                            <th onClick={() => handleSortPurchase("supplier")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
                               <div className="flex items-center space-x-1">
                                 <span>Supplier</span>
-                                {purchaseSortField === "supplier" ? (
-                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                                )}
+                                {purchaseSortField === "supplier" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                               </div>
                             </th>
-
                             <th className="p-3.5 text-center">Aksi</th>
                           </tr>
                         </thead>
@@ -2048,7 +2111,15 @@ export default function App() {
             <form onSubmit={handleProcessPayment} className="space-y-4 text-sm">
               <div className="p-4 bg-slate-50 rounded-2xl border text-center space-y-1">
                 <div className="text-xs text-slate-500">Total Yang Harus Dibayar:</div>
-                <div className="text-2xl font-black text-slate-900">Rp {cartSubtotal.toLocaleString("id-ID")}</div>
+                {discountAmount > 0 ? (
+                  <div className="space-y-0.5">
+                    <div className="text-xs text-slate-400 line-through">Rp {cartSubtotal.toLocaleString("id-ID")}</div>
+                    <div className="text-2xl font-black text-slate-900">Rp {finalCartTotal.toLocaleString("id-ID")}</div>
+                    <div className="text-[11px] font-bold text-rose-600">Diskon: -Rp {discountAmount.toLocaleString("id-ID")}</div>
+                  </div>
+                ) : (
+                  <div className="text-2xl font-black text-slate-900">Rp {finalCartTotal.toLocaleString("id-ID")}</div>
+                )}
               </div>
 
               <div>
@@ -2089,15 +2160,15 @@ export default function App() {
                     onChange={(e) => setPaidAmount(e.target.value)}
                   />
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setPaidAmount(cartSubtotal.toString())} className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold">Uang Pas</button>
+                    <button type="button" onClick={() => setPaidAmount(finalCartTotal.toString())} className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold">Uang Pas</button>
                     <button type="button" onClick={() => setPaidAmount("50000")} className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold">50.000</button>
                     <button type="button" onClick={() => setPaidAmount("100000")} className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold">100.000</button>
                   </div>
 
-                  {Number(paidAmount) >= cartSubtotal && (
+                  {Number(paidAmount) >= finalCartTotal && (
                     <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex justify-between items-center text-xs font-bold">
                       <span>Kembalian:</span>
-                      <span className="text-sm font-black">Rp {(Number(paidAmount) - cartSubtotal).toLocaleString("id-ID")}</span>
+                      <span className="text-sm font-black">Rp {(Number(paidAmount) - finalCartTotal).toLocaleString("id-ID")}</span>
                     </div>
                   )}
                 </div>

@@ -21,6 +21,23 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+// Auto migration untuk kolom diskon/voucher pada tabel orders
+(async () => {
+  try {
+    const [cols] = await pool.query("SHOW COLUMNS FROM orders LIKE 'discount_amount'");
+    if (cols.length === 0) {
+      await pool.query(`ALTER TABLE orders 
+        ADD COLUMN subtotal DECIMAL(15,2) DEFAULT 0.00 AFTER payment_method,
+        ADD COLUMN discount_type VARCHAR(20) DEFAULT 'none' AFTER subtotal,
+        ADD COLUMN discount_value DECIMAL(15,2) DEFAULT 0.00 AFTER discount_type,
+        ADD COLUMN discount_amount DECIMAL(15,2) DEFAULT 0.00 AFTER discount_value`);
+      console.log('Kolom diskon & voucher berhasil ditambahkan ke tabel orders.');
+    }
+  } catch (err) {
+    console.log('Info migrasi orders:', err.message);
+  }
+})();
+
 // Middleware JWT
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -236,10 +253,10 @@ app.delete('/api/menus/:menuId/recipe/:ingredientId', verifyToken, async (req, r
 });
 
 // ----------------------------------------------------
-// 4. POS (POINT OF SALE) & LAPORAN TRANSAKSI
+// 4. POS (POINT OF SALE) DENGAN DISKON/VOUCHER
 // ----------------------------------------------------
 app.post('/api/orders', verifyToken, async (req, res) => {
-  const { customerName, paymentMethod, items, paidAmount } = req.body;
+  const { customerName, paymentMethod, items, paidAmount, discountType, discountValue, discountAmount } = req.body;
   if (!items || items.length === 0) {
     return res.status(400).json({ success: false, message: 'Keranjang pesanan kosong!' });
   }
@@ -248,14 +265,17 @@ app.post('/api/orders', verifyToken, async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    let totalAmount = 0;
+    let subtotalAmount = 0;
     let totalCost = 0;
     for (const item of items) {
-      totalAmount += Number(item.price) * Number(item.qty);
+      subtotalAmount += Number(item.price) * Number(item.qty);
       totalCost += Number(item.cost || 0) * Number(item.qty);
     }
 
-    const changeAmount = Number(paidAmount) - totalAmount;
+    const discAmt = Math.max(0, Math.min(Number(discountAmount) || 0, subtotalAmount));
+    const finalTotalAmount = Math.max(0, subtotalAmount - discAmt);
+
+    const changeAmount = Number(paidAmount) - finalTotalAmount;
     if (changeAmount < 0 && paymentMethod === 'cash') {
       await conn.rollback();
       return res.status(400).json({ success: false, message: 'Uang pembayaran kurang!' });
@@ -266,9 +286,22 @@ app.post('/api/orders', verifyToken, async (req, res) => {
     const orderNumber = `INV-${dateStr}-${randomSuffix}`;
 
     const [orderRes] = await conn.query(
-      `INSERT INTO orders (order_number, user_id, customer_name, payment_method, total_amount, total_cost, paid_amount, change_amount, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')`,
-      [orderNumber, req.user.id, customerName || 'Pelanggan', paymentMethod || 'cash', totalAmount, totalCost, paidAmount || totalAmount, changeAmount > 0 ? changeAmount : 0]
+      `INSERT INTO orders (order_number, user_id, customer_name, payment_method, subtotal, discount_type, discount_value, discount_amount, total_amount, total_cost, paid_amount, change_amount, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')`,
+      [
+        orderNumber,
+        req.user.id,
+        customerName || 'Pelanggan',
+        paymentMethod || 'cash',
+        subtotalAmount,
+        discountType || 'none',
+        Number(discountValue) || 0,
+        discAmt,
+        finalTotalAmount,
+        totalCost,
+        paidAmount || finalTotalAmount,
+        changeAmount > 0 ? changeAmount : 0
+      ]
     );
 
     const orderId = orderRes.insertId;
@@ -290,9 +323,13 @@ app.post('/api/orders', verifyToken, async (req, res) => {
         orderNumber,
         customerName: customerName || 'Pelanggan',
         paymentMethod,
-        totalAmount,
+        subtotal: subtotalAmount,
+        discountType: discountType || 'none',
+        discountValue: Number(discountValue) || 0,
+        discountAmount: discAmt,
+        totalAmount: finalTotalAmount,
         totalCost,
-        paidAmount: paidAmount || totalAmount,
+        paidAmount: paidAmount || finalTotalAmount,
         changeAmount: changeAmount > 0 ? changeAmount : 0,
         items,
         cashier: req.user.username,
@@ -399,7 +436,6 @@ app.post('/api/purchases', verifyToken, requireSuperadmin, async (req, res) => {
       ]
     );
 
-    // Opsi: Update otomatis harga beli pada tabel master ingredients
     if (updateMasterPrice && ingredientId) {
       await conn.query(
         `UPDATE ingredients SET price = ? WHERE id = ?`,
@@ -455,7 +491,6 @@ app.delete('/api/purchases/:id', verifyToken, requireSuperadmin, async (req, res
   }
 });
 
-// Rekap Perbandingan Omset vs Belanja Riil
 app.get('/api/reports/cashflow-comparison', verifyToken, requireSuperadmin, async (req, res) => {
   try {
     const [salesRow] = await pool.query(
