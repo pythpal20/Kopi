@@ -356,6 +356,129 @@ app.get('/api/reports/summary', verifyToken, async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// 5. MODUL BELANJA / EXPENSES (SUPERADMIN ONLY)
+// ----------------------------------------------------
+app.get('/api/purchases', verifyToken, requireSuperadmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.*, u.name as recorded_by, i.name as ingredient_name 
+       FROM purchases p 
+       LEFT JOIN users u ON p.created_by = u.id 
+       LEFT JOIN ingredients i ON p.ingredient_id = i.id 
+       ORDER BY p.purchase_date DESC, p.id DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/purchases', verifyToken, requireSuperadmin, async (req, res) => {
+  const { purchaseDate, ingredientId, itemName, category, qty, unit, unitPrice, totalAmount, supplier, notes, updateMasterPrice } = req.body;
+  
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [result] = await conn.query(
+      `INSERT INTO purchases (purchase_date, ingredient_id, item_name, category, qty, unit, unit_price, total_amount, supplier, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        purchaseDate || new Date().toISOString().slice(0, 10),
+        ingredientId ? parseInt(ingredientId) : null,
+        itemName,
+        category || 'Bahan Baku',
+        parseFloat(qty) || 1,
+        unit || 'unit',
+        parseFloat(unitPrice) || 0,
+        parseFloat(totalAmount) || (parseFloat(qty) * parseFloat(unitPrice)),
+        supplier || '-',
+        notes || '',
+        req.user.id
+      ]
+    );
+
+    // Opsi: Update otomatis harga beli pada tabel master ingredients
+    if (updateMasterPrice && ingredientId) {
+      await conn.query(
+        `UPDATE ingredients SET price = ? WHERE id = ?`,
+        [parseFloat(unitPrice) || parseFloat(totalAmount), parseInt(ingredientId)]
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true, id: result.insertId });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put('/api/purchases/:id', verifyToken, requireSuperadmin, async (req, res) => {
+  const { id } = req.params;
+  const { purchaseDate, ingredientId, itemName, category, qty, unit, unitPrice, totalAmount, supplier, notes } = req.body;
+  try {
+    await pool.query(
+      `UPDATE purchases 
+       SET purchase_date = ?, ingredient_id = ?, item_name = ?, category = ?, qty = ?, unit = ?, unit_price = ?, total_amount = ?, supplier = ?, notes = ?
+       WHERE id = ?`,
+      [
+        purchaseDate,
+        ingredientId ? parseInt(ingredientId) : null,
+        itemName,
+        category,
+        parseFloat(qty),
+        unit,
+        parseFloat(unitPrice),
+        parseFloat(totalAmount),
+        supplier,
+        notes,
+        id
+      ]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/purchases/:id', verifyToken, requireSuperadmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM purchases WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rekap Perbandingan Omset vs Belanja Riil
+app.get('/api/reports/cashflow-comparison', verifyToken, requireSuperadmin, async (req, res) => {
+  try {
+    const [salesRow] = await pool.query(
+      `SELECT COALESCE(SUM(total_amount), 0) as total_omset FROM orders WHERE status = 'completed'`
+    );
+    const [expenseRow] = await pool.query(
+      `SELECT COALESCE(SUM(total_amount), 0) as total_expense FROM purchases`
+    );
+
+    const totalOmset = parseFloat(salesRow[0].total_omset);
+    const totalExpense = parseFloat(expenseRow[0].total_expense);
+    const netCashflow = totalOmset - totalExpense;
+
+    res.json({
+      totalOmset,
+      totalExpense,
+      netCashflow
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = 5001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Coffee POS & HPP REST API Server running on port ${PORT}`);

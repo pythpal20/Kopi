@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus,
   Trash2,
@@ -32,6 +32,15 @@ import {
   Banknote,
   Minus,
   CheckCircle2,
+  ShoppingBag,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Scale,
+  Calendar,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
 } from "lucide-react";
 
 const API_URL = "http://localhost:5001/api";
@@ -56,7 +65,7 @@ export default function App() {
   // ----------------------------------------------------
   // 2. NAVIGASI TAB UTAMA
   // ----------------------------------------------------
-  const [activeTab, setActiveTab] = useState("pos"); // "pos" | "history" | "calculator" | "database" | "users"
+  const [activeTab, setActiveTab] = useState("pos"); // "pos" | "history" | "calculator" | "database" | "purchases" | "users"
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // ----------------------------------------------------
@@ -67,11 +76,14 @@ export default function App() {
   const [userList, setUserList] = useState([]);
   const [ordersList, setOrdersList] = useState([]);
   const [reportSummary, setReportSummary] = useState(null);
+  const [purchasesList, setPurchasesList] = useState([]);
+  const [cashflowComparison, setCashflowComparison] = useState(null);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Form Filter & CRUD States
+  // Filter & Form States
   const [searchQuery, setSearchQuery] = useState("");
+  // const [purchaseSearch, setPurchaseSearch] = useState("");
   const [ingForm, setIngForm] = useState({ name: "", price: "", size: "", unit: "gr" });
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState(null);
@@ -84,12 +96,37 @@ export default function App() {
   const [editingUser, setEditingUser] = useState(null);
   const [userMsg, setUserMsg] = useState({ type: "", text: "" });
 
+  // State Belanja Bahan / Pengeluaran (Superadmin)
+  const [purchaseForm, setPurchaseForm] = useState({
+    purchaseDate: new Date().toISOString().slice(0, 10),
+    ingredientId: "",
+    itemName: "",
+    category: "Bahan Baku",
+    qty: "1",
+    unit: "unit",
+    unitPrice: "",
+    totalAmount: "",
+    supplier: "",
+    notes: "",
+    updateMasterPrice: true,
+  });
+  const [isEditPurchaseModalOpen, setIsEditPurchaseModalOpen] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState(null);
+
+  // Filter & Sorting Tabel Belanja
+  const [purchaseSearch, setPurchaseSearch] = useState("");
+  const [purchaseStartDate, setPurchaseStartDate] = useState("");
+  const [purchaseEndDate, setPurchaseEndDate] = useState("");
+  const [purchaseCategoryFilter, setPurchaseCategoryFilter] = useState("all");
+  const [purchaseSortField, setPurchaseSortField] = useState("purchase_date");
+  const [purchaseSortOrder, setPurchaseSortOrder] = useState("desc"); // "asc" | "desc"
+
   // ----------------------------------------------------
   // 4. POS KASIR STATE
   // ----------------------------------------------------
   const [cart, setCart] = useState([]);
   const [customerName, setCustomerName] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("cash"); // "cash" | "qris" | "transfer"
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [paidAmount, setPaidAmount] = useState("");
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
@@ -99,6 +136,8 @@ export default function App() {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   });
+
+  const isSuperadmin = currentUser?.role === "superadmin";
 
   // ----------------------------------------------------
   // FETCH ALL DATA
@@ -158,7 +197,7 @@ export default function App() {
   };
 
   const fetchUsers = async () => {
-    if (!token || currentUser?.role !== "superadmin") return;
+    if (!token || !isSuperadmin) return;
     try {
       const res = await fetch(`${API_URL}/users`, { headers: getAuthHeaders() });
       const data = await res.json();
@@ -168,10 +207,34 @@ export default function App() {
     }
   };
 
+  const fetchPurchases = async () => {
+    if (!token || !isSuperadmin) return;
+    try {
+      const res = await fetch(`${API_URL}/purchases`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      setPurchasesList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchCashflowComparison = async () => {
+    if (!token || !isSuperadmin) return;
+    try {
+      const res = await fetch(`${API_URL}/reports/cashflow-comparison`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      setCashflowComparison(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const loadAllData = async () => {
     setIsLoadingData(true);
     await Promise.all([fetchIngredients(), fetchMenus(), fetchOrders(), fetchReports()]);
-    if (currentUser?.role === "superadmin") await fetchUsers();
+    if (isSuperadmin) {
+      await Promise.all([fetchUsers(), fetchPurchases(), fetchCashflowComparison()]);
+    }
     setIsLoadingData(false);
   };
 
@@ -329,6 +392,7 @@ export default function App() {
         setIsCheckoutModalOpen(false);
         fetchOrders();
         fetchReports();
+        fetchCashflowComparison();
       } else {
         alert(data.message || "Gagal memproses transaksi!");
       }
@@ -340,11 +404,231 @@ export default function App() {
   };
 
   // ----------------------------------------------------
+  // MODUL PENCATATAN BELANJA BAHAN (SUPERADMIN ONLY)
+  // ----------------------------------------------------
+  const handleSelectMasterIngredient = (ingId) => {
+    if (!ingId) {
+      setPurchaseForm({
+        ...purchaseForm,
+        ingredientId: "",
+        itemName: "",
+        unitPrice: "",
+        unit: "unit",
+      });
+      return;
+    }
+    const found = ingredients.find((i) => i.id === parseInt(ingId));
+    if (found) {
+      const unitP = Number(found.price) || 0;
+      const q = parseFloat(purchaseForm.qty) || 1;
+      setPurchaseForm({
+        ...purchaseForm,
+        ingredientId: found.id.toString(),
+        itemName: found.name,
+        unit: found.unit,
+        unitPrice: unitP.toString(),
+        totalAmount: (q * unitP).toString(),
+      });
+    }
+  };
+
+  const handlePurchaseQtyChange = (qVal) => {
+    const q = parseFloat(qVal) || 0;
+    const p = parseFloat(purchaseForm.unitPrice) || 0;
+    setPurchaseForm({
+      ...purchaseForm,
+      qty: qVal,
+      totalAmount: (q * p).toString(),
+    });
+  };
+
+  const handlePurchasePriceChange = (pVal) => {
+    const p = parseFloat(pVal) || 0;
+    const q = parseFloat(purchaseForm.qty) || 0;
+    setPurchaseForm({
+      ...purchaseForm,
+      unitPrice: pVal,
+      totalAmount: (q * p).toString(),
+    });
+  };
+
+  const handleAddPurchase = async (e) => {
+    e.preventDefault();
+    if (!isSuperadmin) return;
+    if (!purchaseForm.itemName || !purchaseForm.totalAmount) {
+      return alert("Nama barang dan nominal total belanja wajib diisi!");
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/purchases`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(purchaseForm),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert("Catatan belanja bahan berhasil disimpan!");
+        setPurchaseForm({
+          purchaseDate: new Date().toISOString().slice(0, 10),
+          ingredientId: "",
+          itemName: "",
+          category: "Bahan Baku",
+          qty: "1",
+          unit: "unit",
+          unitPrice: "",
+          totalAmount: "",
+          supplier: "",
+          notes: "",
+          updateMasterPrice: true,
+        });
+        fetchPurchases();
+        fetchCashflowComparison();
+        if (purchaseForm.updateMasterPrice) {
+          fetchIngredients();
+        }
+      } else {
+        alert(data.message || "Gagal mencatat belanja!");
+      }
+    } catch (err) {
+      alert("Koneksi server gagal!");
+    }
+  };
+
+  const handleDeletePurchase = async (id, name) => {
+    if (!isSuperadmin) return;
+    if (window.confirm(`Hapus catatan belanja "${name}"?`)) {
+      try {
+        const res = await fetch(`${API_URL}/purchases/${id}`, {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          fetchPurchases();
+          fetchCashflowComparison();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleSaveEditPurchase = async (e) => {
+    e.preventDefault();
+    if (!isSuperadmin || !editingPurchase) return;
+    try {
+      const res = await fetch(`${API_URL}/purchases/${editingPurchase.id}`, {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(editingPurchase),
+      });
+      if (res.ok) {
+        setIsEditPurchaseModalOpen(false);
+        setEditingPurchase(null);
+        fetchPurchases();
+        fetchCashflowComparison();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ----------------------------------------------------
+  // LOGIKA SORTING & FILTERING DAFTAR BELANJA
+  // ----------------------------------------------------
+  const handleSortPurchase = (field) => {
+    if (purchaseSortField === field) {
+      setPurchaseSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setPurchaseSortField(field);
+      setPurchaseSortOrder("asc");
+    }
+  };
+
+  const resetPurchaseFilter = () => {
+    setPurchaseSearch("");
+    setPurchaseStartDate("");
+    setPurchaseEndDate("");
+    setPurchaseCategoryFilter("all");
+    setPurchaseSortField("purchase_date");
+    setPurchaseSortOrder("desc");
+  };
+
+  const processedPurchases = useMemo(() => {
+    let result = [...purchasesList];
+
+    // 1. Filter Pencarian Text
+    if (purchaseSearch.trim()) {
+      const q = purchaseSearch.toLowerCase();
+      result = result.filter(
+        (p) =>
+          (p.item_name || "").toLowerCase().includes(q) ||
+          (p.supplier || "").toLowerCase().includes(q) ||
+          (p.notes || "").toLowerCase().includes(q)
+      );
+    }
+
+    // 2. Filter Kategori
+    if (purchaseCategoryFilter !== "all") {
+      result = result.filter((p) => p.category === purchaseCategoryFilter);
+    }
+
+    // 3. Filter Rentang Tanggal
+    if (purchaseStartDate) {
+      result = result.filter((p) => {
+        const itemDate = p.purchase_date ? p.purchase_date.slice(0, 10) : "";
+        return itemDate >= purchaseStartDate;
+      });
+    }
+
+    if (purchaseEndDate) {
+      result = result.filter((p) => {
+        const itemDate = p.purchase_date ? p.purchase_date.slice(0, 10) : "";
+        return itemDate <= purchaseEndDate;
+      });
+    }
+
+    // 4. Sortable Table Logic
+    result.sort((a, b) => {
+      let aVal = a[purchaseSortField];
+      let bVal = b[purchaseSortField];
+
+      if (purchaseSortField === "purchase_date") {
+        aVal = new Date(a.purchase_date).getTime();
+        bVal = new Date(b.purchase_date).getTime();
+      } else if (purchaseSortField === "total_amount" || purchaseSortField === "unit_price" || purchaseSortField === "qty") {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+      } else {
+        aVal = (aVal || "").toString().toLowerCase();
+        bVal = (bVal || "").toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return purchaseSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return purchaseSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [
+    purchasesList,
+    purchaseSearch,
+    purchaseCategoryFilter,
+    purchaseStartDate,
+    purchaseEndDate,
+    purchaseSortField,
+    purchaseSortOrder,
+  ]);
+
+  const filteredPurchasesTotal = useMemo(() => {
+    return processedPurchases.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
+  }, [processedPurchases]);
+
+  // ----------------------------------------------------
   // INGREDIENTS & MENU CRUD HANDLERS
   // ----------------------------------------------------
   const handleAddIngredient = async (e) => {
     e.preventDefault();
-    if (currentUser?.role !== "superadmin") return;
+    if (!isSuperadmin) return;
     try {
       const res = await fetch(`${API_URL}/ingredients`, {
         method: "POST",
@@ -366,7 +650,7 @@ export default function App() {
   };
 
   const handleDeleteIngredient = async (id) => {
-    if (currentUser?.role !== "superadmin") return;
+    if (!isSuperadmin) return;
     if (window.confirm("Yakin ingin menghapus bahan ini? Data resep menu terkait juga akan terhapus.")) {
       try {
         const res = await fetch(`${API_URL}/ingredients/${id}`, { method: "DELETE", headers: getAuthHeaders() });
@@ -382,7 +666,7 @@ export default function App() {
 
   const handleSaveEditIngredient = async (e) => {
     e.preventDefault();
-    if (currentUser?.role !== "superadmin") return;
+    if (!isSuperadmin) return;
     try {
       const res = await fetch(`${API_URL}/ingredients/${editingIngredient.id}`, {
         method: "PUT",
@@ -425,7 +709,7 @@ export default function App() {
   };
 
   const handleDeleteMenu = async (id) => {
-    if (currentUser?.role !== "superadmin") return;
+    if (!isSuperadmin) return;
     if (menus.length <= 1) return alert("Minimal harus ada 1 menu!");
     if (window.confirm("Hapus menu ini beserta seluruh resepnya?")) {
       try {
@@ -554,8 +838,6 @@ export default function App() {
   const customMargin = customPriceVal > 0 ? (customProfit / customPriceVal) * 100 : 0;
   const customFC = customPriceVal > 0 ? (totalHPP / customPriceVal) * 100 : 0;
 
-  const isSuperadmin = currentUser?.role === "superadmin";
-
   // ----------------------------------------------------
   // LAYAR LOGIN JIKA BELUM TERAUTENTIKASI
   // ----------------------------------------------------
@@ -568,6 +850,10 @@ export default function App() {
               <Coffee className="w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Sistem POS & HPP Kopi</h1>
+            <div className="inline-flex items-center space-x-1 text-[11px] bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full font-semibold border border-emerald-200">
+              <KeyRound className="w-3 h-3" />
+              <span>Protected JWT & MySQL</span>
+            </div>
           </div>
 
           {authError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center space-x-2"><ShieldAlert className="w-4 h-4 shrink-0" /><span>{authError}</span></div>}
@@ -594,6 +880,16 @@ export default function App() {
               <button type="submit" disabled={isLoadingAuth} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl transition shadow-md flex items-center justify-center space-x-2">
                 {isLoadingAuth ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Masuk Kasir & Dashboard</span>}
               </button>
+
+              <div className="pt-2 text-center text-xs text-slate-500">
+                Belum punya akun? <button type="button" onClick={() => setAuthMode("register")} className="text-amber-600 font-bold hover:underline">Daftar Sekarang</button>
+              </div>
+
+              <div className="p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-500 space-y-1">
+                <div className="font-semibold text-slate-700">Akun Pengujian:</div>
+                <div>Superadmin: <span className="font-mono text-slate-800 font-bold">superadmin</span> / <span className="font-mono">123</span></div>
+                <div>Admin: <span className="font-mono text-slate-800 font-bold">admin</span> / <span className="font-mono">123</span></div>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-3 text-sm">
@@ -677,6 +973,28 @@ export default function App() {
               </div>
             </button>
 
+            {/* MODUL KHUSUS SUPERADMIN: BELANJA BAHAN & PENGELUARAN */}
+            {isSuperadmin && (
+              <>
+                <div className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Keuangan & Belanja</div>
+                <button
+                  onClick={() => {
+                    setActiveTab("purchases");
+                    setIsSidebarOpen(false);
+                    fetchPurchases();
+                    fetchCashflowComparison();
+                  }}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-xs md:text-sm font-semibold transition ${activeTab === "purchases" ? "bg-amber-600 text-white shadow-md" : "text-slate-300 hover:text-white hover:bg-slate-800/70"}`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <ShoppingBag className="w-4 h-4" />
+                    <span>Belanja & Pengeluaran</span>
+                  </div>
+                  <span className="text-[10px] bg-slate-950/40 px-2 py-0.5 rounded-full font-bold">{purchasesList.length}</span>
+                </button>
+              </>
+            )}
+
             <div className="px-3 pt-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Master & HPP</div>
 
             <button
@@ -745,11 +1063,12 @@ export default function App() {
               <h2 className="text-base md:text-xl font-extrabold text-slate-900 tracking-tight">
                 {activeTab === "pos" && "Point of Sale (Samora Coffee)"}
                 {activeTab === "history" && "Laporan Penjualan & Riwayat Kasir"}
+                {activeTab === "purchases" && "Pencatatan Belanja & Arus Kas Riil"}
                 {activeTab === "calculator" && "Kalkulator HPP & Resep Menu"}
                 {activeTab === "database" && "Database Master Bahan Baku"}
                 {activeTab === "users" && "Manajemen Pengguna Aplikasi"}
               </h2>
-              <p className="text-[11px] text-slate-500 hidden sm:block">Sistem POS Terintegrasi Perhitungan HPP Real-time</p>
+              <p className="text-[11px] text-slate-500 hidden sm:block">Sistem POS Terintegrasi Perhitungan HPP & Belanja Real-time</p>
             </div>
           </div>
           <div className="flex items-center space-x-2 text-xs">
@@ -805,7 +1124,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* TAB 1: POS (POINT OF SALE KASIR) */}
+              {/* TAB 1: POS */}
               {activeTab === "pos" && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Grid Menu Produk */}
@@ -929,7 +1248,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 2: RIWAYAT & LAPORAN */}
+              {/* TAB 2: RIWAYAT TRANSAKSI */}
               {activeTab === "history" && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -944,19 +1263,19 @@ export default function App() {
                     </div>
 
                     <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
-                      <div className="text-xs text-slate-500 font-bold uppercase">Total Modal (HPP)</div>
+                      <div className="text-xs text-slate-500 font-bold uppercase">Total Modal (HPP Kasir)</div>
                       <div className="text-2xl font-black text-amber-700 mt-2">
                         Rp {Number(reportSummary?.summary?.total_cost || 0).toLocaleString("id-ID")}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-1">Biaya pokok bahan baku</div>
+                      <div className="text-[11px] text-slate-400 mt-1">Estimasi HPP item terjual</div>
                     </div>
 
                     <div className="bg-emerald-600 text-white p-5 rounded-3xl shadow-md">
-                      <div className="text-xs text-emerald-100 font-bold uppercase">Total Laba Bersih Kotor</div>
+                      <div className="text-xs text-emerald-100 font-bold uppercase">Laba Bersih Kasir</div>
                       <div className="text-2xl font-black text-white mt-2">
                         Rp {Number(reportSummary?.summary?.total_gross_profit || 0).toLocaleString("id-ID")}
                       </div>
-                      <div className="text-[11px] text-emerald-200 mt-1">Keuntungan bersih penjualan</div>
+                      <div className="text-[11px] text-emerald-200 mt-1">Keuntungan kotor kasir</div>
                     </div>
 
                     <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
@@ -966,7 +1285,7 @@ export default function App() {
                           ? ((reportSummary.summary.total_gross_profit / reportSummary.summary.total_revenue) * 100).toFixed(1)
                           : 0}%
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-1">Efisiensi keuntungan menu</div>
+                      <div className="text-[11px] text-slate-400 mt-1">Rasio margin harga menu</div>
                     </div>
                   </div>
 
@@ -1061,7 +1380,457 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 3: KALKULATOR HPP */}
+              {/* ====================================================
+                  TAB 3: MODUL BELANJA BAHAN (DENGAN FILTER TANGGAL & SORTABLE TABLE)
+              ==================================================== */}
+              {activeTab === "purchases" && isSuperadmin && (
+                <div className="space-y-6">
+                  {/* Perbandingan Omset vs Pengeluaran Riil */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center space-x-4">
+                      <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
+                        <ArrowUpCircle className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 font-bold uppercase">Total Omset Masuk</div>
+                        <div className="text-2xl font-black text-slate-900 mt-0.5">
+                          Rp {Number(cashflowComparison?.totalOmset || 0).toLocaleString("id-ID")}
+                        </div>
+                        <div className="text-[11px] text-emerald-600 font-semibold">Uang kasir terbayar</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center space-x-4">
+                      <div className="p-3 bg-red-100 text-red-700 rounded-2xl">
+                        <ArrowDownCircle className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 font-bold uppercase">Total Belanja Riil</div>
+                        <div className="text-2xl font-black text-red-700 mt-0.5">
+                          Rp {Number(cashflowComparison?.totalExpense || 0).toLocaleString("id-ID")}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-semibold">Total nota belanja & operasional</div>
+                      </div>
+                    </div>
+
+                    <div className={`p-5 rounded-3xl shadow-md text-white flex items-center space-x-4 ${
+                      (cashflowComparison?.netCashflow || 0) >= 0 ? "bg-slate-900" : "bg-red-900"
+                    }`}>
+                      <div className="p-3 bg-white/10 rounded-2xl">
+                        <Scale className="w-8 h-8 text-amber-400" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-300 font-bold uppercase">Sisa Arus Kas (Net Cashflow)</div>
+                        <div className="text-2xl font-black text-white mt-0.5">
+                          Rp {Number(cashflowComparison?.netCashflow || 0).toLocaleString("id-ID")}
+                        </div>
+                        <div className="text-[11px] text-amber-300 font-semibold">
+                          {(cashflowComparison?.netCashflow || 0) >= 0 ? "Surplus (Omset > Pengeluaran)" : "Defisit (Pengeluaran > Omset)"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Form Pencatatan Belanja */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                    <div className="border-b pb-3 flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <ShoppingBag className="w-5 h-5 text-amber-600" />
+                        <h3 className="font-extrabold text-base md:text-lg text-slate-900">Catat Belanja Bahan / Pengeluaran Baru</h3>
+                      </div>
+                      <span className="text-xs bg-amber-50 text-amber-800 px-3 py-1 rounded-full font-bold">Khusus Superadmin</span>
+                    </div>
+
+                    <form onSubmit={handleAddPurchase} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal Belanja</label>
+                        <input
+                          type="date"
+                          required
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.purchaseDate}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, purchaseDate: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Pilih Master Bahan Baku (Opsional)</label>
+                        <select
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.ingredientId}
+                          onChange={(e) => handleSelectMasterIngredient(e.target.value)}
+                        >
+                          <option value="">-- Ketik Manual / Non-Master --</option>
+                          {ingredients.map((ing) => (
+                            <option key={ing.id} value={ing.id}>{ing.name} ({ing.size} {ing.unit})</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Nama Barang / Pengeluaran</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="misal: Biji Kopi Arabica / Cup 16oz / Gas"
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.itemName}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, itemName: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
+                        <select
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.category}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, category: e.target.value })}
+                        >
+                          <option value="Bahan Baku">Bahan Baku (Kopi/Susu/Sirup)</option>
+                          <option value="Packaging">Packaging (Cup, Sedotan, Seal)</option>
+                          <option value="Operasional">Operasional (Gas, Galon, Listrik)</option>
+                          <option value="Lain-lain">Lain-lain</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">Jumlah (Qty)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="1"
+                            className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                            value={purchaseForm.qty}
+                            onChange={(e) => handlePurchaseQtyChange(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">Satuan</label>
+                          <input
+                            type="text"
+                            placeholder="kg / botol / pcs"
+                            className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                            value={purchaseForm.unit}
+                            onChange={(e) => setPurchaseForm({ ...purchaseForm, unit: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Harga Satuan (Rp)</label>
+                        <input
+                          type="number"
+                          placeholder="Harga per pcs/kg"
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.unitPrice}
+                          onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Total Biaya Belanja (Rp)</label>
+                        <input
+                          type="number"
+                          required
+                          placeholder="Total Nota (Rp)"
+                          className="w-full p-2.5 border rounded-xl bg-amber-50/50 font-bold text-amber-900 text-xs"
+                          value={purchaseForm.totalAmount}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, totalAmount: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Supplier / Toko Pembelian</label>
+                        <input
+                          type="text"
+                          placeholder="Nama Roastery / Pasar / Toko"
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.supplier}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, supplier: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="lg:col-span-3">
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Catatan Tambahan (Opsional)</label>
+                        <input
+                          type="text"
+                          placeholder="misal: Kemasan pouch 1kg, expired 2027"
+                          className="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white text-xs"
+                          value={purchaseForm.notes}
+                          onChange={(e) => setPurchaseForm({ ...purchaseForm, notes: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="flex flex-col justify-end">
+                        <button
+                          type="submit"
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white font-black py-2.5 rounded-xl transition flex items-center justify-center space-x-1 text-xs"
+                        >
+                          <Plus className="w-4 h-4" /> <span>Simpan Catatan Belanja</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN (SORTABLE + FILTER TANGGAL LENGKAP) */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
+                      <div>
+                        <h3 className="font-extrabold text-base text-slate-900">Daftar Riwayat Pengeluaran Belanja</h3>
+                        <p className="text-xs text-slate-500">Klik judul kolom tabel di bawah untuk mengurutkan (sort) data.</p>
+                      </div>
+
+                      {/* Filter Controls Bar */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Filter Rentang Tanggal */}
+                        <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
+                          <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
+                          <input
+                            type="date"
+                            className="bg-transparent outline-none p-1 text-xs"
+                            value={purchaseStartDate}
+                            onChange={(e) => setPurchaseStartDate(e.target.value)}
+                            title="Dari Tanggal"
+                          />
+                          <span className="text-slate-400">-</span>
+                          <input
+                            type="date"
+                            className="bg-transparent outline-none p-1 text-xs"
+                            value={purchaseEndDate}
+                            onChange={(e) => setPurchaseEndDate(e.target.value)}
+                            title="Sampai Tanggal"
+                          />
+                        </div>
+
+                        {/* Filter Kategori */}
+                        <select
+                          className="p-2 border rounded-xl text-xs bg-slate-50 focus:bg-white outline-none"
+                          value={purchaseCategoryFilter}
+                          onChange={(e) => setPurchaseCategoryFilter(e.target.value)}
+                        >
+                          <option value="all">Semua Kategori</option>
+                          <option value="Bahan Baku">Bahan Baku</option>
+                          <option value="Packaging">Packaging</option>
+                          <option value="Operasional">Operasional</option>
+                          <option value="Lain-lain">Lain-lain</option>
+                        </select>
+
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="Cari barang..."
+                            className="pl-8 pr-3 py-1.5 border rounded-xl text-xs w-36 sm:w-44 outline-none focus:ring-2 focus:ring-amber-500"
+                            value={purchaseSearch}
+                            onChange={(e) => setPurchaseSearch(e.target.value)}
+                          />
+                        </div>
+
+                        {/* Reset Filter Button */}
+                        {(purchaseSearch || purchaseStartDate || purchaseEndDate || purchaseCategoryFilter !== "all") && (
+                          <button
+                            onClick={resetPurchaseFilter}
+                            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition flex items-center space-x-1 text-xs font-semibold"
+                            title="Reset Filter"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Reset</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Banner Subtotal Hasil Filter */}
+                    <div className="flex flex-wrap items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                      <div className="text-slate-600">
+                        Menampilkan <span className="font-bold text-slate-900">{processedPurchases.length}</span> dari total {purchasesList.length} transaksi belanja
+                        {purchaseStartDate && purchaseEndDate && (
+                          <span> (Periode: {purchaseStartDate} s/d {purchaseEndDate})</span>
+                        )}
+                      </div>
+                      <div className="font-bold text-slate-800">
+                        Total Pengeluaran Filtered: <span className="font-black text-red-700 text-sm">Rp {filteredPurchasesTotal.toLocaleString("id-ID")}</span>
+                      </div>
+                    </div>
+
+                    {/* SORTABLE TABLE */}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
+                          <tr>
+                            {/* Sortable Tanggal */}
+                            <th
+                              onClick={() => handleSortPurchase("purchase_date")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Tanggal</span>
+                                {purchaseSortField === "purchase_date" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Nama Barang */}
+                            <th
+                              onClick={() => handleSortPurchase("item_name")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Nama Barang</span>
+                                {purchaseSortField === "item_name" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Kategori */}
+                            <th
+                              onClick={() => handleSortPurchase("category")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Kategori</span>
+                                {purchaseSortField === "category" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Qty */}
+                            <th
+                              onClick={() => handleSortPurchase("qty")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Qty / Satuan</span>
+                                {purchaseSortField === "qty" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Harga Satuan */}
+                            <th
+                              onClick={() => handleSortPurchase("unit_price")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Harga Satuan</span>
+                                {purchaseSortField === "unit_price" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Total Pengeluaran */}
+                            <th
+                              onClick={() => handleSortPurchase("total_amount")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Total Biaya</span>
+                                {purchaseSortField === "total_amount" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            {/* Sortable Supplier */}
+                            <th
+                              onClick={() => handleSortPurchase("supplier")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
+                              <div className="flex items-center space-x-1">
+                                <span>Supplier</span>
+                                {purchaseSortField === "supplier" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+
+                            <th className="p-3.5 text-center">Aksi</th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {processedPurchases.length === 0 ? (
+                            <tr>
+                              <td colSpan="8" className="p-8 text-center text-slate-400 italic">
+                                Tidak ada data belanja yang sesuai dengan kriteria filter tanggal/pencarian.
+                              </td>
+                            </tr>
+                          ) : (
+                            processedPurchases.map((p) => (
+                              <tr key={p.id} className="hover:bg-slate-50 transition">
+                                <td className="p-3.5 text-slate-600 whitespace-nowrap font-medium">
+                                  {new Date(p.purchase_date).toLocaleDateString("id-ID", { dateStyle: "medium" })}
+                                </td>
+                                <td className="p-3.5 font-bold text-slate-900">{p.item_name}</td>
+                                <td className="p-3.5">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 border text-slate-700">
+                                    {p.category}
+                                  </span>
+                                </td>
+                                <td className="p-3.5 text-slate-600">{p.qty} {p.unit}</td>
+                                <td className="p-3.5 text-slate-500">Rp {Number(p.unit_price).toLocaleString("id-ID")}</td>
+                                <td className="p-3.5 font-black text-red-700 whitespace-nowrap">
+                                  Rp {Number(p.total_amount).toLocaleString("id-ID")}
+                                </td>
+                                <td className="p-3.5 text-slate-600">{p.supplier || "-"}</td>
+                                <td className="p-3.5 text-center space-x-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingPurchase({
+                                        ...p,
+                                        purchaseDate: p.purchase_date.slice(0, 10),
+                                        itemName: p.item_name,
+                                        unitPrice: p.unit_price,
+                                        totalAmount: p.total_amount,
+                                      });
+                                      setIsEditPurchaseModalOpen(true);
+                                    }}
+                                    className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"
+                                    title="Edit Belanja"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePurchase(p.id, p.item_name)}
+                                    className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
+                                    title="Hapus Belanja"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: KALKULATOR HPP */}
               {activeTab === "calculator" && (
                 <div className="space-y-6">
                   <div className="bg-white p-5 md:p-6 rounded-3xl shadow-xs border border-slate-200">
@@ -1161,7 +1930,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 4: DATABASE BAHAN BAKU */}
+              {/* TAB 5: DATABASE BAHAN BAKU */}
               {activeTab === "database" && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xs border border-slate-200 space-y-6">
@@ -1214,7 +1983,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 5: KELOLA USER (SUPERADMIN) */}
+              {/* TAB 6: KELOLA USER (SUPERADMIN) */}
               {activeTab === "users" && isSuperadmin && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xs border border-slate-200 space-y-6">
@@ -1389,6 +2158,47 @@ export default function App() {
               <div className="flex space-x-2 pt-2">
                 <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl">Batal</button>
                 <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl">Simpan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT BELANJA (SUPERADMIN) */}
+      {isEditPurchaseModalOpen && editingPurchase && isSuperadmin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4">
+            <h3 className="font-bold text-lg">Edit Catatan Belanja</h3>
+            <form onSubmit={handleSaveEditPurchase} className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal</label>
+                <input type="date" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.purchaseDate} onChange={(e) => setEditingPurchase({ ...editingPurchase, purchaseDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nama Barang</label>
+                <input type="text" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.itemName} onChange={(e) => setEditingPurchase({ ...editingPurchase, itemName: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Qty</label>
+                  <input type="number" step="any" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.qty} onChange={(e) => setEditingPurchase({ ...editingPurchase, qty: e.target.value, totalAmount: (parseFloat(e.target.value || 0) * parseFloat(editingPurchase.unitPrice || 0)).toString() })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Satuan</label>
+                  <input type="text" className="w-full p-2.5 border rounded-xl" value={editingPurchase.unit} onChange={(e) => setEditingPurchase({ ...editingPurchase, unit: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Total Biaya (Rp)</label>
+                <input type="number" required className="w-full p-2.5 border rounded-xl font-bold" value={editingPurchase.totalAmount} onChange={(e) => setEditingPurchase({ ...editingPurchase, totalAmount: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Supplier</label>
+                <input type="text" className="w-full p-2.5 border rounded-xl" value={editingPurchase.supplier} onChange={(e) => setEditingPurchase({ ...editingPurchase, supplier: e.target.value })} />
+              </div>
+              <div className="flex space-x-2 pt-2">
+                <button type="button" onClick={() => setIsEditPurchaseModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl">Batal</button>
+                <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl">Simpan Perubahan</button>
               </div>
             </form>
           </div>
