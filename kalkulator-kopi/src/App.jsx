@@ -51,7 +51,6 @@ import {
 
 const API_URL = "http://localhost:5001/api";
 
-// Helper fungsi proteksi format tanggal & string aman
 const formatDateSafe = (dateVal) => {
   if (!dateVal) return "-";
   try {
@@ -85,9 +84,6 @@ const formatDateInput = (dateVal) => {
 };
 
 export default function App() {
-  // ----------------------------------------------------
-  // 1. AUTHENTICATION & JWT STATE
-  // ----------------------------------------------------
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem("kopi_user");
     return saved ? JSON.parse(saved) : null;
@@ -101,15 +97,9 @@ export default function App() {
   const [authSuccess, setAuthSuccess] = useState("");
   const [isLoadingAuth, setIsLoadingAuth] = useState(false);
 
-  // ----------------------------------------------------
-  // 2. NAVIGASI TAB UTAMA
-  // ----------------------------------------------------
-  const [activeTab, setActiveTab] = useState("pos"); // "pos" | "history" | "calculator" | "database" | "purchases" | "users"
+  const [activeTab, setActiveTab] = useState("pos");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // ----------------------------------------------------
-  // 3. MASTER DATA DARI MYSQL
-  // ----------------------------------------------------
   const [ingredients, setIngredients] = useState([]);
   const [menus, setMenus] = useState([]);
   const [userList, setUserList] = useState([]);
@@ -120,7 +110,6 @@ export default function App() {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Filter & Form States
   const [searchQuery, setSearchQuery] = useState("");
   const [ingSortField, setIngSortField] = useState("name");
   const [ingSortOrder, setIngSortOrder] = useState("asc");
@@ -133,19 +122,16 @@ export default function App() {
   const [newMenuName, setNewMenuName] = useState("");
   const [recipeForm, setRecipeForm] = useState({ ingredientId: "", amount: "" });
 
-  // State Riwayat Harga Bahan Baku
   const [priceHistoryList, setPriceHistoryList] = useState([]);
   const [activeHistoryIngredient, setActiveHistoryIngredient] = useState(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // State User Management (Superadmin)
   const [userForm, setUserForm] = useState({ name: "", username: "", password: "", role: "admin" });
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [userMsg, setUserMsg] = useState({ type: "", text: "" });
 
-  // State Belanja Bahan / Pengeluaran (Superadmin)
   const [purchaseForm, setPurchaseForm] = useState({
     purchaseDate: new Date().toISOString().slice(0, 10),
     ingredientId: "",
@@ -162,7 +148,6 @@ export default function App() {
   const [isEditPurchaseModalOpen, setIsEditPurchaseModalOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState(null);
 
-  // Filter & Sorting Tabel Belanja
   const [purchaseSearch, setPurchaseSearch] = useState("");
   const [purchaseStartDate, setPurchaseStartDate] = useState("");
   const [purchaseEndDate, setPurchaseEndDate] = useState("");
@@ -170,7 +155,6 @@ export default function App() {
   const [purchaseSortField, setPurchaseSortField] = useState("purchase_date");
   const [purchaseSortOrder, setPurchaseSortOrder] = useState("desc");
 
-  // Filter, Sorting & Pagination Tabel Riwayat Kasir
   const [orderSearchCustomer, setOrderSearchCustomer] = useState("");
   const [orderStartDate, setOrderStartDate] = useState("");
   const [orderEndDate, setOrderEndDate] = useState("");
@@ -180,9 +164,6 @@ export default function App() {
   const [orderPage, setOrderPage] = useState(1);
   const [orderRowsPerPage, setOrderRowsPerPage] = useState(10);
 
-  // ----------------------------------------------------
-  // 4. POS KASIR STATE
-  // ----------------------------------------------------
   const [cart, setCart] = useState([]);
   const [customerName, setCustomerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
@@ -200,9 +181,6 @@ export default function App() {
 
   const isSuperadmin = currentUser?.role === "superadmin";
 
-  // ----------------------------------------------------
-  // FETCH ALL DATA
-  // ----------------------------------------------------
   const fetchIngredients = async () => {
     if (!token) return;
     try {
@@ -328,9 +306,6 @@ export default function App() {
     }
   }, [currentUser, token]);
 
-  // ----------------------------------------------------
-  // AUTHENTICATION HANDLERS
-  // ----------------------------------------------------
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -396,9 +371,6 @@ export default function App() {
     setDiscountValue("");
   };
 
-  // ----------------------------------------------------
-  // HITUNG HPP ITEM MENU (OTOMATIS SINKRON DENGAN HARGA BAHAN TERBARU)
-  // ----------------------------------------------------
   const calculateMenuHPP = (menu) => {
     if (!menu || !Array.isArray(menu.recipe)) return 0;
     return menu.recipe.reduce((total, item) => {
@@ -409,9 +381,6 @@ export default function App() {
     }, 0);
   };
 
-  // ----------------------------------------------------
-  // POS CART & TRANSACTION LOGIC
-  // ----------------------------------------------------
   const addToCart = (menu) => {
     const existing = cart.find((item) => item.id === menu.id);
     const itemCost = calculateMenuHPP(menu);
@@ -512,9 +481,6 @@ export default function App() {
     }
   };
 
-  // ----------------------------------------------------
-  // LOGIKA SORTING, FILTERING & PAGINASI RIWAYAT KASIR
-  // ----------------------------------------------------
   const handleSortOrder = (field) => {
     if (orderSortField === field) {
       setOrderSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -606,9 +572,6 @@ export default function App() {
     return processedOrders.slice(startIndex, startIndex + orderRowsPerPage);
   }, [processedOrders, orderPage, orderRowsPerPage]);
 
-  // ----------------------------------------------------
-  // LOGIKA SORTING & PAGINASI DATABASE MASTER BAHAN BAKU
-  // ----------------------------------------------------
   const handleSortIngredient = (field) => {
     if (ingSortField === field) {
       setIngSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -660,9 +623,6 @@ export default function App() {
     return processedIngredients.slice(startIndex, startIndex + ingRowsPerPage);
   }, [processedIngredients, ingPage, ingRowsPerPage]);
 
-  // ----------------------------------------------------
-  // INGREDIENTS & MENU CRUD HANDLERS
-  // ----------------------------------------------------
   const handleAddIngredient = async (e) => {
     e.preventDefault();
     if (!isSuperadmin) return;
@@ -727,6 +687,7 @@ export default function App() {
 
   const handleAddMenu = async (e) => {
     e.preventDefault();
+    if (!isSuperadmin) return alert("Hanya Superadmin yang berhak menambah menu baru!");
     if (!newMenuName.trim()) return;
     try {
       const res = await fetch(`${API_URL}/menus`, {
@@ -764,6 +725,7 @@ export default function App() {
 
   const handleAddRecipeItem = async (e) => {
     e.preventDefault();
+    if (!isSuperadmin) return alert("Hanya Superadmin yang berhak menambah/mengubah takaran resep!");
     if (!activeMenuId || !recipeForm.amount || parseFloat(recipeForm.amount) <= 0) return;
     const ingId = recipeForm.ingredientId || (ingredients[0] && ingredients[0].id);
     try {
@@ -782,6 +744,7 @@ export default function App() {
   };
 
   const handleDeleteRecipeItem = async (ingId) => {
+    if (!isSuperadmin) return alert("Hanya Superadmin yang berhak menghapus bahan dari resep!");
     try {
       const res = await fetch(`${API_URL}/menus/${activeMenuId}/recipe/${ingId}`, { method: "DELETE", headers: getAuthHeaders() });
       if (res.ok) fetchMenus();
@@ -791,7 +754,7 @@ export default function App() {
   };
 
   const handleCustomPriceChange = async (val) => {
-    if (!activeMenuId) return;
+    if (!activeMenuId || !isSuperadmin) return;
     const newPrice = parseFloat(val) || 0;
     setMenus((prev) => prev.map((m) => (m.id === activeMenuId ? { ...m, customPrice: newPrice } : m)));
     try {
@@ -805,7 +768,6 @@ export default function App() {
     }
   };
 
-  // User CRUD Handlers
   const handleAddUser = async (e) => {
     e.preventDefault();
     try {
@@ -862,9 +824,6 @@ export default function App() {
     }
   };
 
-  // ----------------------------------------------------
-  // MODUL PENCATATAN BELANJA BAHAN (SUPERADMIN ONLY)
-  // ----------------------------------------------------
   const handleSelectMasterIngredient = (ingId) => {
     if (!ingId) {
       setPurchaseForm({
@@ -1077,7 +1036,6 @@ export default function App() {
     return processedPurchases.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
   }, [processedPurchases]);
 
-  // Kalkulasi HPP Menu Terpilih di Tab Calculator
   const activeMenu = menus.find((m) => m.id === activeMenuId) || menus[0] || null;
   const totalHPP = calculateMenuHPP(activeMenu);
   const roundThousand = (val) => Math.ceil(val / 1000) * 1000;
@@ -1088,11 +1046,7 @@ export default function App() {
   const customPriceVal = activeMenu?.customPrice || 0;
   const customProfit = customPriceVal - totalHPP;
   const customMargin = customPriceVal > 0 ? (customProfit / customPriceVal) * 100 : 0;
-  const customFC = customPriceVal > 0 ? (totalHPP / customPriceVal) * 100 : 0;
 
-  // ----------------------------------------------------
-  // LAYAR LOGIN
-  // ----------------------------------------------------
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -1160,8 +1114,8 @@ export default function App() {
               <div>
                 <label className="block text-slate-700 font-semibold mb-1 text-xs">User Access</label>
                 <select className="w-full p-2.5 border rounded-xl bg-white text-xs" value={registerForm.role} onChange={(e) => setRegisterForm({ ...registerForm, role: e.target.value })}>
-                  <option value="admin">admin (Kasir, Resep & Menu)</option>
-                  <option value="superadmin">Superadmin (Akses Penuh CRUD)</option>
+                  <option value="admin">admin (Kasir & Resep)</option>
+                  <option value="superadmin">superadmin</option>
                 </select>
               </div>
               <button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl transition shadow-md flex items-center justify-center space-x-1"><UserPlus className="w-4 h-4" /> <span>Daftarkan Akun</span></button>
@@ -1175,9 +1129,6 @@ export default function App() {
     );
   }
 
-  // ----------------------------------------------------
-  // DASHBOARD
-  // ----------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100 flex font-sans text-slate-800 antialiased">
       {isSidebarOpen && (
@@ -1238,7 +1189,7 @@ export default function App() {
                 >
                   <div className="flex items-center space-x-3">
                     <ShoppingBag className="w-4 h-4" />
-                    <span>Belanja & Pengeluaran</span>
+                    <span>Belanja Bahan & Pengeluaran</span>
                   </div>
                   <span className="text-[10px] bg-slate-950/40 px-2 py-0.5 rounded-full font-bold">{purchasesList.length}</span>
                 </button>
@@ -1253,7 +1204,7 @@ export default function App() {
             >
               <div className="flex items-center space-x-3">
                 <Calculator className="w-4 h-4" />
-                <span>Kalkulator HPP & Resep</span>
+                <span>{isSuperadmin ? "Kalkulator HPP & Resep" : "Resep & Takaran Menu"}</span>
               </div>
               <span className="text-[10px] bg-slate-950/40 px-2 py-0.5 rounded-full font-bold">{menus.length}</span>
             </button>
@@ -1314,7 +1265,7 @@ export default function App() {
                 {activeTab === "pos" && "Point of Sale (Samora Coffee)"}
                 {activeTab === "history" && "Laporan Penjualan & Riwayat Kasir"}
                 {activeTab === "purchases" && "Pencatatan Belanja & Arus Kas Riil"}
-                {activeTab === "calculator" && "Kalkulator HPP & Resep Menu"}
+                {activeTab === "calculator" && (isSuperadmin ? "Kalkulator HPP & Resep Menu" : "Katalog Resep & Takaran Menu")}
                 {activeTab === "database" && "Database Master Bahan Baku"}
                 {activeTab === "users" && "Manajemen Pengguna Aplikasi"}
               </h2>
@@ -1389,7 +1340,6 @@ export default function App() {
               {/* TAB 1: POS */}
               {activeTab === "pos" && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Grid Menu Produk */}
                   <div className="lg:col-span-7 space-y-4">
                     <div className="bg-white p-4 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
                       <div className="text-sm font-bold text-slate-800">Katalog Menu Kopi</div>
@@ -1408,15 +1358,19 @@ export default function App() {
                                 <Coffee className="w-5 h-5" />
                               </div>
                               <h3 className="font-extrabold text-base text-slate-800">{m.name}</h3>
-                              <div className="text-xs text-slate-400 mt-0.5">HPP Modal: Rp {Math.round(hppVal).toLocaleString("id-ID")}</div>
+                              {isSuperadmin && (
+                                <div className="text-xs text-slate-400 mt-0.5">HPP Modal: Rp {Math.round(hppVal).toLocaleString("id-ID")}</div>
+                              )}
                             </div>
 
                             <div>
                               <div className="flex justify-between items-baseline mb-3">
                                 <span className="text-lg font-black text-slate-900">Rp {priceVal.toLocaleString("id-ID")}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  +{marginPct.toFixed(0)}% Margin
-                                </span>
+                                {isSuperadmin && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    +{marginPct.toFixed(0)}% Margin
+                                  </span>
+                                )}
                               </div>
 
                               <button
@@ -1576,14 +1530,18 @@ export default function App() {
                             <span>- Rp {discountAmount.toLocaleString("id-ID")}</span>
                           </div>
                         )}
-                        <div className="flex justify-between text-slate-400">
-                          <span>Total Modal (HPP):</span>
-                          <span>Rp {Math.round(cartCostTotal).toLocaleString("id-ID")}</span>
-                        </div>
-                        <div className="flex justify-between text-amber-400 font-semibold">
-                          <span>Estimasi Laba Bersih:</span>
-                          <span>Rp {Math.round(cartProfitEst).toLocaleString("id-ID")}</span>
-                        </div>
+                        {isSuperadmin && (
+                          <>
+                            <div className="flex justify-between text-slate-400">
+                              <span>Total Modal (HPP):</span>
+                              <span>Rp {Math.round(cartCostTotal).toLocaleString("id-ID")}</span>
+                            </div>
+                            <div className="flex justify-between text-amber-400 font-semibold">
+                              <span>Estimasi Laba Bersih:</span>
+                              <span>Rp {Math.round(cartProfitEst).toLocaleString("id-ID")}</span>
+                            </div>
+                          </>
+                        )}
                         <div className="border-t border-slate-800 pt-2 flex justify-between items-baseline">
                           <span className="font-bold text-sm">TOTAL AKHIR:</span>
                           <span className="text-xl font-black text-white">Rp {finalCartTotal.toLocaleString("id-ID")}</span>
@@ -1616,31 +1574,39 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
-                      <div className="text-xs text-slate-500 font-bold uppercase">Total Modal (HPP Kasir)</div>
-                      <div className="text-2xl font-black text-amber-700 mt-2">
-                        Rp {Number(reportSummary?.summary?.total_cost || 0).toLocaleString("id-ID")}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-1">Estimasi HPP item terjual</div>
-                    </div>
+                    {isSuperadmin ? (
+                      <>
+                        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
+                          <div className="text-xs text-slate-500 font-bold uppercase">Total Modal (HPP Kasir)</div>
+                          <div className="text-2xl font-black text-amber-700 mt-2">
+                            Rp {Number(reportSummary?.summary?.total_cost || 0).toLocaleString("id-ID")}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-1">Estimasi HPP item terjual</div>
+                        </div>
 
-                    <div className="bg-emerald-600 text-white p-5 rounded-3xl shadow-md">
-                      <div className="text-xs text-emerald-100 font-bold uppercase">Laba Bersih Kasir</div>
-                      <div className="text-2xl font-black text-white mt-2">
-                        Rp {Number(reportSummary?.summary?.total_gross_profit || 0).toLocaleString("id-ID")}
-                      </div>
-                      <div className="text-[11px] text-emerald-200 mt-1">Keuntungan kotor kasir</div>
-                    </div>
+                        <div className="bg-emerald-600 text-white p-5 rounded-3xl shadow-md">
+                          <div className="text-xs text-emerald-100 font-bold uppercase">Laba Bersih Kasir</div>
+                          <div className="text-2xl font-black text-white mt-2">
+                            Rp {Number(reportSummary?.summary?.total_gross_profit || 0).toLocaleString("id-ID")}
+                          </div>
+                          <div className="text-[11px] text-emerald-200 mt-1">Keuntungan kotor kasir</div>
+                        </div>
 
-                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
-                      <div className="text-xs text-slate-500 font-bold uppercase">Rata-rata Margin</div>
-                      <div className="text-2xl font-black text-indigo-600 mt-2">
-                        {reportSummary?.summary?.total_revenue > 0
-                          ? ((reportSummary.summary.total_gross_profit / reportSummary.summary.total_revenue) * 100).toFixed(1)
-                          : 0}%
+                        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
+                          <div className="text-xs text-slate-500 font-bold uppercase">Rata-rata Margin</div>
+                          <div className="text-2xl font-black text-indigo-600 mt-2">
+                            {reportSummary?.summary?.total_revenue > 0
+                              ? ((reportSummary.summary.total_gross_profit / reportSummary.summary.total_revenue) * 100).toFixed(1)
+                              : 0}%
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-1">Rasio margin harga menu</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center justify-center col-span-3 text-xs text-slate-400 italic">
+                        Data ringkasan modal, laba bersih, dan margin hanya dapat diakses oleh Superadmin.
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-1">Rasio margin harga menu</div>
-                    </div>
+                    )}
                   </div>
 
                   {reportSummary?.topMenus && reportSummary.topMenus.length > 0 && (
@@ -1671,7 +1637,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Filter Controls Bar */}
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
                           <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
@@ -1920,7 +1885,6 @@ export default function App() {
               {/* TAB 3: MODUL BELANJA BAHAN */}
               {activeTab === "purchases" && isSuperadmin && (
                 <div className="space-y-6">
-                  {/* Perbandingan Omset vs Pengeluaran Riil */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center space-x-4">
                       <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
@@ -1948,8 +1912,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className={`p-5 rounded-3xl shadow-md text-white flex items-center space-x-4 ${(cashflowComparison?.netCashflow || 0) >= 0 ? "bg-slate-900" : "bg-red-900"
-                      }`}>
+                    <div className={`p-5 rounded-3xl shadow-md text-white flex items-center space-x-4 ${(cashflowComparison?.netCashflow || 0) >= 0 ? "bg-slate-900" : "bg-red-900"}`}>
                       <div className="p-3 bg-white/10 rounded-2xl">
                         <Scale className="w-8 h-8 text-amber-400" />
                       </div>
@@ -1965,7 +1928,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Form Pencatatan Belanja */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     <div className="border-b pb-3 flex items-center justify-between">
                       <div className="flex items-center space-x-2">
@@ -2108,7 +2070,6 @@ export default function App() {
                     </form>
                   </div>
 
-                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
                       <div>
@@ -2116,7 +2077,6 @@ export default function App() {
                         <p className="text-xs text-slate-500">Klik judul kolom tabel di bawah untuk mengurutkan (sort) data.</p>
                       </div>
 
-                      {/* Filter Controls Bar */}
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
                           <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
@@ -2185,7 +2145,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SORTABLE TABLE */}
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
                         <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
@@ -2352,7 +2311,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 4: KALKULATOR HPP */}
+              {/* TAB 4: MODUL MENU & RESEP (PROTEKSI KHUSUS SUPERADMIN) */}
               {activeTab === "calculator" && (
                 <div className="space-y-6">
                   <div className="bg-white p-5 md:p-6 rounded-3xl shadow-xs border border-slate-200">
@@ -2361,6 +2320,11 @@ export default function App() {
                         <Layers className="w-5 h-5 text-amber-600" />
                         <h3 className="font-bold text-base md:text-lg text-slate-800">Daftar Menu Kopi</h3>
                       </div>
+                      {!isSuperadmin && (
+                        <span className="text-[11px] bg-slate-100 text-slate-500 font-semibold px-2.5 py-1 rounded-full">
+                          Mode Resep (Staff Read-Only)
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap gap-2 mb-4">
@@ -2373,86 +2337,125 @@ export default function App() {
                             {m.name}
                           </button>
                           {isSuperadmin && menus.length > 1 && (
-                            <button onClick={() => handleDeleteMenu(m.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDeleteMenu(m.id)} className="p-2 text-slate-400 hover:text-red-600" title="Hapus Menu"><Trash2 className="w-3.5 h-3.5" /></button>
                           )}
                         </div>
                       ))}
                     </div>
 
-                    <form onSubmit={handleAddMenu} className="flex flex-col sm:flex-row gap-2 text-sm max-w-xl">
-                      <input type="text" placeholder="Nama Varian Menu Baru" className="flex-1 p-2.5 border rounded-xl focus:ring-2 focus:ring-amber-500 outline-none" value={newMenuName} onChange={(e) => setNewMenuName(e.target.value)} />
-                      <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition"><Plus className="w-4 h-4" /> <span>Tambah Menu</span></button>
-                    </form>
+                    {/* FORM TAMBAH MENU: HANYA UNTUK SUPERADMIN */}
+                    {isSuperadmin && (
+                      <form onSubmit={handleAddMenu} className="flex flex-col sm:flex-row gap-2 text-sm max-w-xl">
+                        <input type="text" placeholder="Nama Varian Menu Baru" className="flex-1 p-2.5 border rounded-xl focus:ring-2 focus:ring-amber-500 outline-none" value={newMenuName} onChange={(e) => setNewMenuName(e.target.value)} />
+                        <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition"><Plus className="w-4 h-4" /> <span>Tambah Menu</span></button>
+                      </form>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-7 bg-white p-5 md:p-6 rounded-3xl shadow-xs border border-slate-200 space-y-4">
+                  <div className={`grid grid-cols-1 ${isSuperadmin ? "lg:grid-cols-12" : "max-w-4xl"} gap-6`}>
+                    <div className={`${isSuperadmin ? "lg:col-span-7" : "w-full"} bg-white p-5 md:p-6 rounded-3xl shadow-xs border border-slate-200 space-y-4`}>
                       <div className="flex items-center justify-between border-b pb-3">
                         <h3 className="font-bold text-lg text-slate-800">Resep: <span className="text-amber-700">{activeMenu ? activeMenu.name : "Pilih Menu"}</span></h3>
+                        <span className="text-xs text-slate-400">Takaran Bahan Pembuatan</span>
                       </div>
 
-                      <form onSubmit={handleAddRecipeItem} className="flex flex-wrap gap-2 text-sm bg-slate-50 p-3.5 rounded-2xl border">
-                        <select className="flex-1 min-w-[160px] p-2.5 border rounded-xl bg-white text-xs md:text-sm" value={recipeForm.ingredientId} onChange={(e) => setRecipeForm({ ...recipeForm, ingredientId: e.target.value })}>
-                          {ingredients.map((ing) => (<option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>))}
-                        </select>
-                        <input type="number" step="any" placeholder="Takaran" className="w-28 p-2.5 border rounded-xl bg-white text-xs md:text-sm" value={recipeForm.amount} onChange={(e) => setRecipeForm({ ...recipeForm, amount: e.target.value })} />
-                        <button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-4 py-2.5 rounded-xl transition text-xs md:text-sm">+ Masukkan Resep</button>
-                      </form>
+                      {/* FORM MASUKKAN RESEP: HANYA UNTUK SUPERADMIN */}
+                      {isSuperadmin && (
+                        <form onSubmit={handleAddRecipeItem} className="flex flex-wrap gap-2 text-sm bg-slate-50 p-3.5 rounded-2xl border">
+                          <select className="flex-1 min-w-[160px] p-2.5 border rounded-xl bg-white text-xs md:text-sm" value={recipeForm.ingredientId} onChange={(e) => setRecipeForm({ ...recipeForm, ingredientId: e.target.value })}>
+                            {ingredients.map((ing) => (<option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>))}
+                          </select>
+                          <input type="number" step="any" placeholder="Takaran" className="w-28 p-2.5 border rounded-xl bg-white text-xs md:text-sm" value={recipeForm.amount} onChange={(e) => setRecipeForm({ ...recipeForm, amount: e.target.value })} />
+                          <button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-4 py-2.5 rounded-xl transition text-xs md:text-sm">+ Masukkan Resep</button>
+                        </form>
+                      )}
 
+                      {/* TABEL RESEP: BIAYA & TOMBOL HAPUS HANYA UNTUK SUPERADMIN */}
                       <div className="overflow-x-auto rounded-xl border">
                         <table className="w-full text-left text-sm">
-                          <thead className="bg-slate-100 text-slate-600">
-                            <tr><th className="p-3">Bahan</th><th className="p-3">Takaran</th><th className="p-3">Biaya Satuan</th><th className="p-3">Subtotal</th><th className="p-3 text-center">Aksi</th></tr>
+                          <thead className="bg-slate-100 text-slate-600 text-xs">
+                            <tr>
+                              <th className="p-3">Bahan Baku</th>
+                              <th className="p-3">Takaran Saji</th>
+                              {isSuperadmin && (
+                                <>
+                                  <th className="p-3">Biaya Satuan</th>
+                                  <th className="p-3">Subtotal Biaya</th>
+                                  <th className="p-3 text-center">Aksi</th>
+                                </>
+                              )}
+                            </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {activeMenu?.recipe?.map((item) => {
-                              const ing = ingredients.find((i) => i.id === item.ingredientId);
-                              if (!ing) return null;
-                              const unitCost = Number(ing.price) / Number(ing.size);
-                              return (
-                                <tr key={item.ingredientId} className="hover:bg-slate-50 text-xs md:text-sm">
-                                  <td className="p-3 font-medium">{ing.name}</td>
-                                  <td className="p-3">{item.amount} {ing.unit}</td>
-                                  <td className="p-3 text-xs text-slate-500">Rp {unitCost.toFixed(1)}/{ing.unit}</td>
-                                  <td className="p-3 font-semibold">Rp {Math.round(unitCost * item.amount).toLocaleString("id-ID")}</td>
-                                  <td className="p-3 text-center">
-                                    <button onClick={() => handleDeleteRecipeItem(item.ingredientId)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4 inline" /></button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                            {activeMenu?.recipe?.length === 0 ? (
+                              <tr>
+                                <td colSpan={isSuperadmin ? 5 : 2} className="p-6 text-center text-xs text-slate-400 italic">
+                                  Belum ada bahan dalam resep menu ini.
+                                </td>
+                              </tr>
+                            ) : (
+                              activeMenu?.recipe?.map((item) => {
+                                const ing = ingredients.find((i) => i.id === item.ingredientId);
+                                if (!ing) return null;
+                                const unitCost = Number(ing.price) / Number(ing.size);
+                                return (
+                                  <tr key={item.ingredientId} className="hover:bg-slate-50 text-xs md:text-sm">
+                                    <td className="p-3 font-bold text-slate-800">{ing.name}</td>
+                                    <td className="p-3 font-semibold text-slate-600">{item.amount} {ing.unit}</td>
+                                    {isSuperadmin && (
+                                      <>
+                                        <td className="p-3 text-xs text-slate-500">Rp {unitCost.toFixed(1)}/{ing.unit}</td>
+                                        <td className="p-3 font-bold text-slate-900">Rp {Math.round(unitCost * item.amount).toLocaleString("id-ID")}</td>
+                                        <td className="p-3 text-center">
+                                          <button onClick={() => handleDeleteRecipeItem(item.ingredientId)} className="text-red-500 hover:text-red-700" title="Hapus Dari Resep"><Trash2 className="w-4 h-4 inline" /></button>
+                                        </td>
+                                      </>
+                                    )}
+                                  </tr>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
                       </div>
 
-                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex justify-between items-center">
-                        <span className="text-xs font-bold uppercase text-amber-900">Total HPP per Cup:</span>
-                        <span className="text-2xl font-black text-amber-800">Rp {Math.round(totalHPP).toLocaleString("id-ID")}</span>
-                      </div>
+                      {/* TOTAL HPP: HANYA DILIHAT SUPERADMIN */}
+                      {isSuperadmin && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex justify-between items-center">
+                          <span className="text-xs font-bold uppercase text-amber-900">Total HPP Modal per Cup:</span>
+                          <span className="text-2xl font-black text-amber-800">Rp {Math.round(totalHPP).toLocaleString("id-ID")}</span>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="lg:col-span-5 space-y-4">
-                      <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 space-y-4">
-                        <h3 className="font-bold text-lg text-slate-800">Rekomendasi Harga Jual</h3>
-                        <div className="grid grid-cols-2 gap-3 text-center">
-                          <div className="bg-slate-50 border rounded-2xl p-3"><div className="text-[11px] text-slate-500">Target 30%</div><div className="text-base font-extrabold mt-1">Rp {price30.toLocaleString("id-ID")}</div></div>
-                          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3"><div className="text-[11px] text-amber-800 font-bold">Target 35%</div><div className="text-base font-extrabold text-amber-900 mt-1">Rp {price35.toLocaleString("id-ID")}</div></div>
-                          <div className="bg-slate-50 border rounded-2xl p-3"><div className="text-[11px] text-slate-500">Target 40%</div><div className="text-base font-extrabold mt-1">Rp {price40.toLocaleString("id-ID")}</div></div>
-                          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3"><div className="text-[11px] text-emerald-800 font-bold">Ojol (+20%)</div><div className="text-base font-extrabold text-emerald-900 mt-1">Rp {priceOjol.toLocaleString("id-ID")}</div></div>
-                        </div>
+                    {/* PANEL MARGIN & TARGET HARGA: HANYA UNTUK SUPERADMIN */}
+                    {isSuperadmin && (
+                      <div className="lg:col-span-5 space-y-4">
+                        <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 space-y-4">
+                          <h3 className="font-bold text-lg text-slate-800">Rekomendasi Harga Jual</h3>
+                          <div className="grid grid-cols-2 gap-3 text-center">
+                            <div className="bg-slate-50 border rounded-2xl p-3"><div className="text-[11px] text-slate-500">Target 30%</div><div className="text-base font-extrabold mt-1">Rp {price30.toLocaleString("id-ID")}</div></div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3"><div className="text-[11px] text-amber-800 font-bold">Target 35%</div><div className="text-base font-extrabold text-amber-900 mt-1">Rp {price35.toLocaleString("id-ID")}</div></div>
+                            <div className="bg-slate-50 border rounded-2xl p-3"><div className="text-[11px] text-slate-500">Target 40%</div><div className="text-base font-extrabold mt-1">Rp {price40.toLocaleString("id-ID")}</div></div>
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3"><div className="text-[11px] text-emerald-800 font-bold">Ojol (+20%)</div><div className="text-base font-extrabold text-emerald-900 mt-1">Rp {priceOjol.toLocaleString("id-ID")}</div></div>
+                          </div>
 
-                        <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2">
-                          <span className="text-xs font-semibold text-slate-300">Pasang Harga Kasir (POS)</span>
-                          <input type="number" className="w-full pl-3 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-bold text-sm" value={activeMenu?.customPrice || ""} onChange={(e) => handleCustomPriceChange(e.target.value)} />
-                          <div className="text-xs text-slate-400 flex justify-between pt-1"><span>Laba: Rp {Math.round(customProfit).toLocaleString("id-ID")}</span><span>Margin: {customMargin.toFixed(1)}%</span></div>
+                          <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2">
+                            <span className="text-xs font-semibold text-slate-300">Pasang Harga Kasir (POS)</span>
+                            <input type="number" className="w-full pl-3 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-bold text-sm" value={activeMenu?.customPrice || ""} onChange={(e) => handleCustomPriceChange(e.target.value)} />
+                            <div className="text-xs text-slate-400 flex justify-between pt-1">
+                              <span>Laba: Rp {Math.round(customProfit).toLocaleString("id-ID")}</span>
+                              <span>Margin: {customMargin.toFixed(1)}%</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* TAB 5: DATABASE BAHAN BAKU (SORTABLE + PAGINATION + RIWAYAT HARGA) */}
+              {/* TAB 5: DATABASE BAHAN BAKU */}
               {activeTab === "database" && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xs border border-slate-200 space-y-6">
@@ -2490,7 +2493,6 @@ export default function App() {
                       </form>
                     )}
 
-                    {/* Bar Info & Pengaturan Baris */}
                     <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
                       <div className="text-slate-600">
                         Menampilkan <span className="font-bold text-slate-900">{processedIngredients.length}</span> bahan baku terdaftar
@@ -2515,7 +2517,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SORTABLE TABLE BAHAN BAKU */}
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
                         <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
@@ -2705,7 +2706,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* MODAL RIWAYAT PERUBAHAN HARGA BAHAN BAKU */}
+      {/* MODAL RIWAYAT PERUBAHAN HARGA */}
       {isHistoryModalOpen && activeHistoryIngredient && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150">

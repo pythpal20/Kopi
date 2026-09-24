@@ -14,16 +14,19 @@ const pool = mysql.createPool({
   host: '127.0.0.1',
   port: 3306,
   user: 'root',
-  password: '',
+  password: '', // Sesuaikan dengan password MySQL lokal Anda
   database: 'db_kopi_hpp',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 });
 
-// Auto migration untuk kolom diskon pada tabel orders & tabel history harga bahan
+// ----------------------------------------------------
+// AUTO MIGRATION DATABASE
+// ----------------------------------------------------
 (async () => {
   try {
+    // 1. Tambah kolom diskon & voucher pada tabel orders jika belum ada
     const [cols] = await pool.query("SHOW COLUMNS FROM orders LIKE 'discount_amount'");
     if (cols.length === 0) {
       await pool.query(`ALTER TABLE orders 
@@ -34,7 +37,7 @@ const pool = mysql.createPool({
       console.log('Kolom diskon & voucher berhasil ditambahkan ke tabel orders.');
     }
 
-    // Buat tabel history harga bahan baku
+    // 2. Buat tabel history harga bahan baku jika belum ada
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ingredient_price_history (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,12 +51,34 @@ const pool = mysql.createPool({
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // 3. Buat tabel purchases (belanja bahan & pengeluaran) jika belum ada
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS purchases (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        purchase_date DATE NOT NULL,
+        ingredient_id INT NULL,
+        item_name VARCHAR(150) NOT NULL,
+        category VARCHAR(50) DEFAULT 'Bahan Baku',
+        qty DECIMAL(10,2) DEFAULT 1.00,
+        unit VARCHAR(20) DEFAULT 'unit',
+        unit_price DECIMAL(15,2) DEFAULT 0.00,
+        total_amount DECIMAL(15,2) DEFAULT 0.00,
+        supplier VARCHAR(100) DEFAULT '-',
+        notes TEXT,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+    console.log('Semua migrasi database berhasil diverifikasi.');
   } catch (err) {
     console.log('Info migrasi database:', err.message);
   }
 })();
 
-// Middleware JWT & Superadmin
+// ----------------------------------------------------
+// MIDDLEWARE JWT & ROLE CHECK
+// ----------------------------------------------------
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader) return res.status(401).json({ success: false, message: 'Token tidak ditemukan!' });
@@ -197,7 +222,7 @@ app.post('/api/ingredients', verifyToken, requireSuperadmin, async (req, res) =>
     const [result] = await conn.query('INSERT INTO ingredients (name, price, size, unit) VALUES (?, ?, ?, ?)', [name, price, size, unit]);
     const newId = result.insertId;
 
-    // Catat history awal
+    // Catat riwayat awal pembuatan bahan
     await conn.query(
       `INSERT INTO ingredient_price_history (ingredient_id, old_price, new_price, old_size, new_size, changed_by, notes)
        VALUES (?, 0, ?, 1, ?, ?, 'Bahan Baru Dibuat')`,
@@ -221,7 +246,6 @@ app.put('/api/ingredients/:id', verifyToken, requireSuperadmin, async (req, res)
   try {
     await conn.beginTransaction();
 
-    // Ambil harga lama untuk dicatat di history
     const [oldRows] = await conn.query('SELECT price, size FROM ingredients WHERE id = ?', [id]);
     if (oldRows.length > 0) {
       const oldPrice = oldRows[0].price;
@@ -266,7 +290,7 @@ app.delete('/api/ingredients/:id', verifyToken, requireSuperadmin, async (req, r
 });
 
 // ----------------------------------------------------
-// 3. MENUS & RECIPES
+// 3. MENUS & RECIPES (PROTEKSI SUPERADMIN)
 // ----------------------------------------------------
 app.get('/api/menus', verifyToken, async (req, res) => {
   try {
@@ -282,7 +306,8 @@ app.get('/api/menus', verifyToken, async (req, res) => {
   }
 });
 
-app.post('/api/menus', verifyToken, async (req, res) => {
+// Tambah Menu Baru (Hanya Superadmin)
+app.post('/api/menus', verifyToken, requireSuperadmin, async (req, res) => {
   const { name, customPrice } = req.body;
   try {
     const [result] = await pool.query('INSERT INTO menus (name, customPrice) VALUES (?, ?)', [name, customPrice || 35000]);
@@ -292,7 +317,8 @@ app.post('/api/menus', verifyToken, async (req, res) => {
   }
 });
 
-app.put('/api/menus/:id/price', verifyToken, async (req, res) => {
+// Ubah Harga Jual Menu (Hanya Superadmin)
+app.put('/api/menus/:id/price', verifyToken, requireSuperadmin, async (req, res) => {
   try {
     await pool.query('UPDATE menus SET customPrice = ? WHERE id = ?', [req.body.customPrice, req.params.id]);
     res.json({ success: true });
@@ -301,6 +327,7 @@ app.put('/api/menus/:id/price', verifyToken, async (req, res) => {
   }
 });
 
+// Hapus Menu (Hanya Superadmin)
 app.delete('/api/menus/:id', verifyToken, requireSuperadmin, async (req, res) => {
   try {
     await pool.query('DELETE FROM menus WHERE id = ?', [req.params.id]);
@@ -310,20 +337,30 @@ app.delete('/api/menus/:id', verifyToken, requireSuperadmin, async (req, res) =>
   }
 });
 
-app.post('/api/menus/:id/recipe', verifyToken, async (req, res) => {
+// Tambah / Update Takaran Resep Menu (Hanya Superadmin)
+app.post('/api/menus/:id/recipe', verifyToken, requireSuperadmin, async (req, res) => {
   const { id } = req.params;
   const { ingredientId, amount } = req.body;
   try {
-    await pool.query(`INSERT INTO menu_recipes (menu_id, ingredient_id, amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE amount = ?`, [id, ingredientId, amount, amount]);
+    await pool.query(
+      `INSERT INTO menu_recipes (menu_id, ingredient_id, amount) 
+       VALUES (?, ?, ?) 
+       ON DUPLICATE KEY UPDATE amount = ?`, 
+      [id, ingredientId, amount, amount]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/menus/:menuId/recipe/:ingredientId', verifyToken, async (req, res) => {
+// Hapus Bahan dari Resep Menu (Hanya Superadmin)
+app.delete('/api/menus/:menuId/recipe/:ingredientId', verifyToken, requireSuperadmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM menu_recipes WHERE menu_id = ? AND ingredient_id = ?', [req.params.menuId, req.params.ingredientId]);
+    await pool.query(
+      'DELETE FROM menu_recipes WHERE menu_id = ? AND ingredient_id = ?', 
+      [req.params.menuId, req.params.ingredientId]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -331,7 +368,7 @@ app.delete('/api/menus/:menuId/recipe/:ingredientId', verifyToken, async (req, r
 });
 
 // ----------------------------------------------------
-// 4. POS (POINT OF SALE) & LAPORAN
+// 4. POS (POINT OF SALE) & LAPORAN TRANSAKSI
 // ----------------------------------------------------
 app.post('/api/orders', verifyToken, async (req, res) => {
   const { customerName, paymentMethod, items, paidAmount, discountType, discountValue, discountAmount } = req.body;
@@ -472,7 +509,7 @@ app.get('/api/reports/summary', verifyToken, async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 5. MODUL BELANJA / EXPENSES & OTOMATIS CATAT HISTORY HARGA
+// 5. MODUL BELANJA & PENGELUARAN (SUPERADMIN ONLY)
 // ----------------------------------------------------
 app.get('/api/purchases', verifyToken, requireSuperadmin, async (req, res) => {
   try {
@@ -516,7 +553,7 @@ app.post('/api/purchases', verifyToken, requireSuperadmin, async (req, res) => {
       ]
     );
 
-    // Jika dicentang update harga master, catat perubahan ke tabel history harga bahan baku
+    // Update harga master dan catat history jika dicentang
     if (updateMasterPrice && ingredientId) {
       const ingIdInt = parseInt(ingredientId);
       const [oldIng] = await conn.query('SELECT price, size FROM ingredients WHERE id = ?', [ingIdInt]);
