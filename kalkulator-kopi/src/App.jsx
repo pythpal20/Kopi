@@ -42,9 +42,46 @@ import {
   ArrowDown,
   RotateCcw,
   Tag,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 
 const API_URL = "http://localhost:5001/api";
+
+// Helper fungsi proteksi format tanggal & string aman
+const formatDateSafe = (dateVal) => {
+  if (!dateVal) return "-";
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return String(dateVal).slice(0, 10);
+    return d.toLocaleDateString("id-ID", { dateStyle: "medium" });
+  } catch {
+    return String(dateVal || "-");
+  }
+};
+
+const formatDateTimeSafe = (dateVal) => {
+  if (!dateVal) return "-";
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return String(dateVal).slice(0, 16);
+    return d.toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return String(dateVal || "-");
+  }
+};
+
+const formatDateInput = (dateVal) => {
+  if (!dateVal) return new Date().toISOString().slice(0, 10);
+  try {
+    if (typeof dateVal === "string") return dateVal.slice(0, 10);
+    return new Date(dateVal).toISOString().slice(0, 10);
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+};
 
 export default function App() {
   // ----------------------------------------------------
@@ -84,6 +121,12 @@ export default function App() {
 
   // Filter & Form States
   const [searchQuery, setSearchQuery] = useState("");
+  // Filter, Sorting & Pagination Tabel Database Bahan Baku
+  const [ingSortField, setIngSortField] = useState("name");
+  const [ingSortOrder, setIngSortOrder] = useState("asc");
+  const [ingPage, setIngPage] = useState(1);
+  const [ingRowsPerPage, setIngRowsPerPage] = useState(10);
+
   const [ingForm, setIngForm] = useState({ name: "", price: "", size: "", unit: "gr" });
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState(null);
@@ -121,8 +164,18 @@ export default function App() {
   const [purchaseSortField, setPurchaseSortField] = useState("purchase_date");
   const [purchaseSortOrder, setPurchaseSortOrder] = useState("desc");
 
+  // Filter, Sorting & Pagination Tabel Riwayat Kasir
+  const [orderSearchCustomer, setOrderSearchCustomer] = useState("");
+  const [orderStartDate, setOrderStartDate] = useState("");
+  const [orderEndDate, setOrderEndDate] = useState("");
+  const [orderPaymentFilter, setOrderPaymentFilter] = useState("all");
+  const [orderSortField, setOrderSortField] = useState("created_at");
+  const [orderSortOrder, setOrderSortOrder] = useState("desc");
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderRowsPerPage, setOrderRowsPerPage] = useState(10);
+
   // ----------------------------------------------------
-  // 4. POS KASIR STATE DENGAN DISKON/VOUCHER
+  // 4. POS KASIR STATE
   // ----------------------------------------------------
   const [cart, setCart] = useState([]);
   const [customerName, setCustomerName] = useState("");
@@ -217,6 +270,7 @@ export default function App() {
       setPurchasesList(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
+      setPurchasesList([]);
     }
   };
 
@@ -225,9 +279,14 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/reports/cashflow-comparison`, { headers: getAuthHeaders() });
       const data = await res.json();
-      setCashflowComparison(data);
+      if (res.ok && data && !data.error) {
+        setCashflowComparison(data);
+      } else {
+        setCashflowComparison({ totalOmset: 0, totalExpense: 0, netCashflow: 0 });
+      }
     } catch (err) {
       console.error(err);
+      setCashflowComparison({ totalOmset: 0, totalExpense: 0, netCashflow: 0 });
     }
   };
 
@@ -361,7 +420,7 @@ export default function App() {
   const cartSubtotal = cart.reduce((sum, it) => sum + it.price * it.qty, 0);
   const cartCostTotal = cart.reduce((sum, it) => sum + it.cost * it.qty, 0);
 
-  // Kalkulasi Diskon & Voucher Kasir
+  // Kalkulasi Diskon & Voucher
   const calculateDiscountAmount = () => {
     const val = parseFloat(discountValue) || 0;
     if (discountType === "percent") {
@@ -430,6 +489,160 @@ export default function App() {
       setIsProcessingPayment(false);
     }
   };
+
+  // ----------------------------------------------------
+  // LOGIKA SORTING, FILTERING & PAGINASI RIWAYAT KASIR
+  // ----------------------------------------------------
+  const handleSortOrder = (field) => {
+    if (orderSortField === field) {
+      setOrderSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setOrderSortField(field);
+      setOrderSortOrder("asc");
+    }
+    setOrderPage(1);
+  };
+
+  const resetOrderFilter = () => {
+    setOrderSearchCustomer("");
+    setOrderStartDate("");
+    setOrderEndDate("");
+    setOrderPaymentFilter("all");
+    setOrderSortField("created_at");
+    setOrderSortOrder("desc");
+    setOrderPage(1);
+  };
+
+  const processedOrders = useMemo(() => {
+    let result = [...ordersList];
+
+    // 1. Filter Pelanggan / No. Invoice
+    if (orderSearchCustomer.trim()) {
+      const q = orderSearchCustomer.toLowerCase();
+      result = result.filter(
+        (o) =>
+          (o.customer_name || "").toLowerCase().includes(q) ||
+          (o.order_number || "").toLowerCase().includes(q)
+      );
+    }
+
+    // 2. Filter Metode Pembayaran
+    if (orderPaymentFilter !== "all") {
+      result = result.filter((o) => o.payment_method === orderPaymentFilter);
+    }
+
+    // 3. Filter Rentang Tanggal
+    if (orderStartDate) {
+      result = result.filter((o) => {
+        const itemDate = o.created_at ? String(o.created_at).slice(0, 10) : "";
+        return itemDate >= orderStartDate;
+      });
+    }
+
+    if (orderEndDate) {
+      result = result.filter((o) => {
+        const itemDate = o.created_at ? String(o.created_at).slice(0, 10) : "";
+        return itemDate <= orderEndDate;
+      });
+    }
+
+    // 4. Sortable
+    result.sort((a, b) => {
+      let aVal = a[orderSortField];
+      let bVal = b[orderSortField];
+
+      if (orderSortField === "created_at") {
+        aVal = new Date(a.created_at).getTime();
+        bVal = new Date(b.created_at).getTime();
+      } else if (orderSortField === "total_amount") {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+      } else {
+        aVal = (aVal || "").toString().toLowerCase();
+        bVal = (bVal || "").toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return orderSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return orderSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [
+    ordersList,
+    orderSearchCustomer,
+    orderPaymentFilter,
+    orderStartDate,
+    orderEndDate,
+    orderSortField,
+    orderSortOrder,
+  ]);
+
+  const totalFilteredOrderAmount = useMemo(() => {
+    return processedOrders.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
+  }, [processedOrders]);
+
+  const totalOrderPages = Math.ceil(processedOrders.length / orderRowsPerPage) || 1;
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (orderPage - 1) * orderRowsPerPage;
+    return processedOrders.slice(startIndex, startIndex + orderRowsPerPage);
+  }, [processedOrders, orderPage, orderRowsPerPage]);
+
+  // ----------------------------------------------------
+  // LOGIKA SORTING & PAGINASI DATABASE MASTER BAHAN BAKU
+  // ----------------------------------------------------
+  const handleSortIngredient = (field) => {
+    if (ingSortField === field) {
+      setIngSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setIngSortField(field);
+      setIngSortOrder("asc");
+    }
+    setIngPage(1);
+  };
+
+  const processedIngredients = useMemo(() => {
+    let result = [...ingredients];
+
+    // 1. Filter Pencarian
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (i) =>
+          (i.name || "").toLowerCase().includes(q) ||
+          (i.unit || "").toLowerCase().includes(q)
+      );
+    }
+
+    // 2. Sorting
+    result.sort((a, b) => {
+      let aVal = a[ingSortField];
+      let bVal = b[ingSortField];
+
+      if (ingSortField === "unitCost") {
+        aVal = (Number(a.price) || 0) / (Number(a.size) || 1);
+        bVal = (Number(b.price) || 0) / (Number(b.size) || 1);
+      } else if (ingSortField === "price" || ingSortField === "size") {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+      } else {
+        aVal = (aVal || "").toString().toLowerCase();
+        bVal = (bVal || "").toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return ingSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return ingSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [ingredients, searchQuery, ingSortField, ingSortOrder]);
+
+  const totalIngPages = Math.ceil(processedIngredients.length / ingRowsPerPage) || 1;
+  const paginatedIngredients = useMemo(() => {
+    const startIndex = (ingPage - 1) * ingRowsPerPage;
+    return processedIngredients.slice(startIndex, startIndex + ingRowsPerPage);
+  }, [processedIngredients, ingPage, ingRowsPerPage]);
 
   // ----------------------------------------------------
   // MODUL PENCATATAN BELANJA BAHAN (SUPERADMIN ONLY)
@@ -584,6 +797,7 @@ export default function App() {
   const processedPurchases = useMemo(() => {
     let result = [...purchasesList];
 
+    // 1. Filter Pencarian Text
     if (purchaseSearch.trim()) {
       const q = purchaseSearch.toLowerCase();
       result = result.filter(
@@ -594,31 +808,36 @@ export default function App() {
       );
     }
 
+    // 2. Filter Kategori
     if (purchaseCategoryFilter !== "all") {
       result = result.filter((p) => p.category === purchaseCategoryFilter);
     }
 
+    // 3. Filter Rentang Tanggal
     if (purchaseStartDate) {
       result = result.filter((p) => {
-        const itemDate = p.purchase_date ? p.purchase_date.slice(0, 10) : "";
+        const itemDate = formatDateInput(p.purchase_date);
         return itemDate >= purchaseStartDate;
       });
     }
 
     if (purchaseEndDate) {
       result = result.filter((p) => {
-        const itemDate = p.purchase_date ? p.purchase_date.slice(0, 10) : "";
+        const itemDate = formatDateInput(p.purchase_date);
         return itemDate <= purchaseEndDate;
       });
     }
 
+    // 4. Sortable Table Logic
     result.sort((a, b) => {
       let aVal = a[purchaseSortField];
       let bVal = b[purchaseSortField];
 
       if (purchaseSortField === "purchase_date") {
-        aVal = new Date(a.purchase_date).getTime();
-        bVal = new Date(b.purchase_date).getTime();
+        aVal = a.purchase_date ? new Date(a.purchase_date).getTime() : 0;
+        bVal = b.purchase_date ? new Date(b.purchase_date).getTime() : 0;
+        if (isNaN(aVal)) aVal = 0;
+        if (isNaN(bVal)) bVal = 0;
       } else if (purchaseSortField === "total_amount" || purchaseSortField === "unit_price" || purchaseSortField === "qty") {
         aVal = Number(aVal) || 0;
         bVal = Number(bVal) || 0;
@@ -932,8 +1151,8 @@ export default function App() {
               <div>
                 <label className="block text-slate-700 font-semibold mb-1 text-xs">User Access</label>
                 <select className="w-full p-2.5 border rounded-xl bg-white text-xs" value={registerForm.role} onChange={(e) => setRegisterForm({ ...registerForm, role: e.target.value })}>
-                  <option value="admin">admin (Kasir, Resep & Menu)</option>
-                  <option value="superadmin">Superadmin (Akses Penuh CRUD)</option>
+                  <option value="admin">admin (Kasir & Resep)</option>
+                  <option value="superadmin">superadmin</option>
                 </select>
               </div>
               <button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl transition shadow-md flex items-center justify-center space-x-1"><UserPlus className="w-4 h-4" /> <span>Daftarkan Akun</span></button>
@@ -1160,7 +1379,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* TAB 1: POS (DENGAN VOUCHER/DISKON) */}
+              {/* TAB 1: POS */}
               {activeTab === "pos" && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Grid Menu Produk */}
@@ -1206,7 +1425,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Cart Drawer Kasir dengan Diskon */}
+                  {/* Cart Drawer Kasir */}
                   <div className="lg:col-span-5 space-y-4">
                     <div className="bg-white p-5 rounded-3xl shadow-xs border border-slate-200 space-y-4">
                       <div className="flex items-center justify-between border-b pb-3">
@@ -1229,7 +1448,7 @@ export default function App() {
                         onChange={(e) => setCustomerName(e.target.value)}
                       />
 
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {cart.length === 0 ? (
                           <div className="p-8 text-center text-xs text-slate-400 italic">Keranjang kosong. Klik menu untuk menambahkan pesanan.</div>
                         ) : (
@@ -1381,7 +1600,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 2: RIWAYAT TRANSAKSI */}
+              {/* TAB 2: RIWAYAT TRANSAKSI (DENGAN FILTER TANGGAL, PELANGGAN, SORTABLE & PAGINATION) */}
               {activeTab === "history" && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -1440,38 +1659,168 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* TABEL RIWAYAT TRANSAKSI KASIR LENGKAP */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between border-b pb-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
                       <div className="flex items-center space-x-2">
                         <Receipt className="w-5 h-5 text-amber-600" />
-                        <h3 className="font-extrabold text-base text-slate-900">Riwayat Struk & Transaksi Kasir</h3>
+                        <div>
+                          <h3 className="font-extrabold text-base text-slate-900">Riwayat Struk & Transaksi Kasir</h3>
+                          <p className="text-xs text-slate-500">Klik judul kolom untuk menyortir data transaksi.</p>
+                        </div>
+                      </div>
+
+                      {/* Filter Controls Bar */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Filter Tanggal */}
+                        <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
+                          <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
+                          <input
+                            type="date"
+                            className="bg-transparent outline-none p-1 text-xs"
+                            value={orderStartDate}
+                            onChange={(e) => { setOrderStartDate(e.target.value); setOrderPage(1); }}
+                            title="Dari Tanggal"
+                          />
+                          <span className="text-slate-400">-</span>
+                          <input
+                            type="date"
+                            className="bg-transparent outline-none p-1 text-xs"
+                            value={orderEndDate}
+                            onChange={(e) => { setOrderEndDate(e.target.value); setOrderPage(1); }}
+                            title="Sampai Tanggal"
+                          />
+                        </div>
+
+                        {/* Filter Metode Pembayaran */}
+                        <select
+                          className="p-2 border rounded-xl text-xs bg-slate-50 focus:bg-white outline-none"
+                          value={orderPaymentFilter}
+                          onChange={(e) => { setOrderPaymentFilter(e.target.value); setOrderPage(1); }}
+                        >
+                          <option value="all">Semua Metode</option>
+                          <option value="cash">Tunai (Cash)</option>
+                          <option value="qris">QRIS</option>
+                          <option value="transfer">Transfer</option>
+                        </select>
+
+                        {/* Search Filter Pelanggan / Invoice */}
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="Cari pelanggan / invoice..."
+                            className="pl-8 pr-3 py-1.5 border rounded-xl text-xs w-44 sm:w-56 outline-none focus:ring-2 focus:ring-amber-500"
+                            value={orderSearchCustomer}
+                            onChange={(e) => { setOrderSearchCustomer(e.target.value); setOrderPage(1); }}
+                          />
+                        </div>
+
+                        {/* Reset Filter Button */}
+                        {(orderSearchCustomer || orderStartDate || orderEndDate || orderPaymentFilter !== "all") && (
+                          <button
+                            onClick={resetOrderFilter}
+                            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition flex items-center space-x-1 text-xs font-semibold"
+                            title="Reset Filter"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Reset</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
+                    {/* Banner Subtotal & Pengaturan Baris */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                      <div className="text-slate-600">
+                        Menampilkan <span className="font-bold text-slate-900">{processedOrders.length}</span> transaksi
+                        {orderStartDate && orderEndDate && (
+                          <span> (Periode: {orderStartDate} s/d {orderEndDate})</span>
+                        )}
+                        <span className="ml-2 font-bold text-slate-800">
+                          | Total Omset Terfilter: <span className="font-black text-emerald-700">Rp {totalFilteredOrderAmount.toLocaleString("id-ID")}</span>
+                        </span>
+                      </div>
+
+                      {/* Dropdown Jumlah Baris Per Halaman */}
+                      <div className="flex items-center space-x-2">
+                        <span className="text-slate-500">Tampilkan baris:</span>
+                        <select
+                          className="p-1.5 bg-white border border-slate-300 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-500"
+                          value={orderRowsPerPage}
+                          onChange={(e) => {
+                            setOrderRowsPerPage(Number(e.target.value));
+                            setOrderPage(1);
+                          }}
+                        >
+                          <option value={5}>5 baris</option>
+                          <option value={10}>10 baris</option>
+                          <option value={20}>20 baris</option>
+                          <option value={50}>50 baris</option>
+                          <option value={100}>100 baris</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* SORTABLE TABLE TRANSAKSI */}
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b">
+                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
                           <tr>
-                            <th className="p-3.5">No. Invoice</th>
-                            <th className="p-3.5">Waktu</th>
-                            <th className="p-3.5">Pelanggan</th>
-                            <th className="p-3.5">Items</th>
-                            <th className="p-3.5">Metode</th>
-                            <th className="p-3.5">Total Tagihan</th>
+                            <th onClick={() => handleSortOrder("order_number")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>No. Invoice</span>
+                                {orderSortField === "order_number" ? (orderSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortOrder("created_at")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Waktu Transaksi</span>
+                                {orderSortField === "created_at" ? (orderSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortOrder("customer_name")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Pelanggan</span>
+                                {orderSortField === "customer_name" ? (orderSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th className="p-3.5">Pesanan (Items)</th>
+
+                            <th onClick={() => handleSortOrder("payment_method")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Metode</span>
+                                {orderSortField === "payment_method" ? (orderSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortOrder("total_amount")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Total Tagihan</span>
+                                {orderSortField === "total_amount" ? (orderSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
                             <th className="p-3.5 text-center">Struk</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {ordersList.length === 0 ? (
+
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {paginatedOrders.length === 0 ? (
                             <tr>
-                              <td colSpan="7" className="p-8 text-center text-slate-400 italic">Belum ada riwayat transaksi.</td>
+                              <td colSpan="7" className="p-8 text-center text-slate-400 italic">
+                                Tidak ada data transaksi yang cocok dengan filter.
+                              </td>
                             </tr>
                           ) : (
-                            ordersList.map((ord) => (
-                              <tr key={ord.id} className="hover:bg-slate-50 transition text-xs">
-                                <td className="p-3.5 font-bold font-mono text-slate-800">{ord.order_number}</td>
-                                <td className="p-3.5 text-slate-500">{new Date(ord.created_at).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}</td>
-                                <td className="p-3.5 font-semibold text-slate-700">{ord.customer_name}</td>
+                            paginatedOrders.map((ord) => (
+                              <tr key={ord.id} className="hover:bg-slate-50 transition">
+                                <td className="p-3.5 font-bold font-mono text-slate-800 whitespace-nowrap">{ord.order_number}</td>
+                                <td className="p-3.5 text-slate-500 whitespace-nowrap">{formatDateTimeSafe(ord.created_at)}</td>
+                                <td className="p-3.5 font-bold text-slate-800">{ord.customer_name}</td>
                                 <td className="p-3.5 text-slate-600">
                                   {ord.items?.map((it) => `${it.qty}x ${it.menu_name}`).join(", ")}
                                 </td>
@@ -1480,7 +1829,14 @@ export default function App() {
                                     {ord.payment_method}
                                   </span>
                                 </td>
-                                <td className="p-3.5 font-black text-slate-900">Rp {Number(ord.total_amount).toLocaleString("id-ID")}</td>
+                                <td className="p-3.5 font-black text-slate-900 whitespace-nowrap">
+                                  Rp {Number(ord.total_amount).toLocaleString("id-ID")}
+                                  {Number(ord.discount_amount) > 0 && (
+                                    <div className="text-[10px] font-semibold text-rose-600">
+                                      (Disc: -Rp {Number(ord.discount_amount).toLocaleString("id-ID")})
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="p-3.5 text-center">
                                   <button
                                     onClick={() => {
@@ -1511,11 +1867,65 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* PAGINATION CONTROLS */}
+                    {processedOrders.length > 0 && (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 text-xs text-slate-600">
+                        <div>
+                          Menampilkan data baris{" "}
+                          <span className="font-bold text-slate-900">{(orderPage - 1) * orderRowsPerPage + 1}</span> -{" "}
+                          <span className="font-bold text-slate-900">{Math.min(orderPage * orderRowsPerPage, processedOrders.length)}</span>{" "}
+                          dari <span className="font-bold text-slate-900">{processedOrders.length}</span> total
+                        </div>
+
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setOrderPage(1)}
+                            disabled={orderPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Pertama"
+                          >
+                            <ChevronsLeft className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setOrderPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={orderPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Sebelumnya"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+
+                          <span className="px-3 py-1 font-bold text-slate-800">
+                            Halaman {orderPage} / {totalOrderPages}
+                          </span>
+
+                          <button
+                            onClick={() => setOrderPage((prev) => Math.min(prev + 1, totalOrderPages))}
+                            disabled={orderPage >= totalOrderPages}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Selanjutnya"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setOrderPage(totalOrderPages)}
+                            disabled={orderPage >= totalOrderPages}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Terakhir"
+                          >
+                            <ChevronsRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* TAB 3: MODUL BELANJA BAHAN */}
+              {/* ====================================================
+                  TAB 3: MODUL BELANJA BAHAN (DENGAN FILTER TANGGAL & SORTABLE TABLE)
+              ==================================================== */}
               {activeTab === "purchases" && isSuperadmin && (
                 <div className="space-y-6">
                   {/* Perbandingan Omset vs Pengeluaran Riil */}
@@ -1707,7 +2117,7 @@ export default function App() {
                     </form>
                   </div>
 
-                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN */}
+                  {/* TABEL DAFTAR RIWAYAT PENGELUARAN (SORTABLE + FILTER TANGGAL LENGKAP) */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-4">
                       <div>
@@ -1715,7 +2125,9 @@ export default function App() {
                         <p className="text-xs text-slate-500">Klik judul kolom tabel di bawah untuk mengurutkan (sort) data.</p>
                       </div>
 
+                      {/* Filter Controls Bar */}
                       <div className="flex flex-wrap items-center gap-2">
+                        {/* Filter Rentang Tanggal */}
                         <div className="flex items-center space-x-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-xs">
                           <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
                           <input
@@ -1735,6 +2147,7 @@ export default function App() {
                           />
                         </div>
 
+                        {/* Filter Kategori */}
                         <select
                           className="p-2 border rounded-xl text-xs bg-slate-50 focus:bg-white outline-none"
                           value={purchaseCategoryFilter}
@@ -1747,6 +2160,7 @@ export default function App() {
                           <option value="Lain-lain">Lain-lain</option>
                         </select>
 
+                        {/* Search Input */}
                         <div className="relative">
                           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                           <input
@@ -1758,6 +2172,7 @@ export default function App() {
                           />
                         </div>
 
+                        {/* Reset Filter Button */}
                         {(purchaseSearch || purchaseStartDate || purchaseEndDate || purchaseCategoryFilter !== "all") && (
                           <button
                             onClick={resetPurchaseFilter}
@@ -1771,6 +2186,7 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Banner Subtotal Hasil Filter */}
                     <div className="flex flex-wrap items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
                       <div className="text-slate-600">
                         Menampilkan <span className="font-bold text-slate-900">{processedPurchases.length}</span> dari total {purchasesList.length} transaksi belanja
@@ -1783,52 +2199,116 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* SORTABLE TABLE */}
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
                         <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
                           <tr>
-                            <th onClick={() => handleSortPurchase("purchase_date")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                            {/* Sortable Tanggal */}
+                            <th
+                              onClick={() => handleSortPurchase("purchase_date")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Tanggal</span>
-                                {purchaseSortField === "purchase_date" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "purchase_date" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("item_name")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Nama Barang */}
+                            <th
+                              onClick={() => handleSortPurchase("item_name")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Nama Barang</span>
-                                {purchaseSortField === "item_name" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "item_name" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("category")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Kategori */}
+                            <th
+                              onClick={() => handleSortPurchase("category")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Kategori</span>
-                                {purchaseSortField === "category" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "category" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("qty")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Qty */}
+                            <th
+                              onClick={() => handleSortPurchase("qty")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Qty / Satuan</span>
-                                {purchaseSortField === "qty" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "qty" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("unit_price")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Harga Satuan */}
+                            <th
+                              onClick={() => handleSortPurchase("unit_price")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Harga Satuan</span>
-                                {purchaseSortField === "unit_price" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "unit_price" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("total_amount")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Total Pengeluaran */}
+                            <th
+                              onClick={() => handleSortPurchase("total_amount")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Total Biaya</span>
-                                {purchaseSortField === "total_amount" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "total_amount" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
-                            <th onClick={() => handleSortPurchase("supplier")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+
+                            {/* Sortable Supplier */}
+                            <th
+                              onClick={() => handleSortPurchase("supplier")}
+                              className="p-3.5 cursor-pointer hover:bg-slate-200 transition"
+                            >
                               <div className="flex items-center space-x-1">
                                 <span>Supplier</span>
-                                {purchaseSortField === "supplier" ? (purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                                {purchaseSortField === "supplier" ? (
+                                  purchaseSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                                )}
                               </div>
                             </th>
+
                             <th className="p-3.5 text-center">Aksi</th>
                           </tr>
                         </thead>
@@ -1844,7 +2324,7 @@ export default function App() {
                             processedPurchases.map((p) => (
                               <tr key={p.id} className="hover:bg-slate-50 transition">
                                 <td className="p-3.5 text-slate-600 whitespace-nowrap font-medium">
-                                  {new Date(p.purchase_date).toLocaleDateString("id-ID", { dateStyle: "medium" })}
+                                  {formatDateSafe(p.purchase_date)}
                                 </td>
                                 <td className="p-3.5 font-bold text-slate-900">{p.item_name}</td>
                                 <td className="p-3.5">
@@ -1853,9 +2333,9 @@ export default function App() {
                                   </span>
                                 </td>
                                 <td className="p-3.5 text-slate-600">{p.qty} {p.unit}</td>
-                                <td className="p-3.5 text-slate-500">Rp {Number(p.unit_price).toLocaleString("id-ID")}</td>
+                                <td className="p-3.5 text-slate-500">Rp {Number(p.unit_price || 0).toLocaleString("id-ID")}</td>
                                 <td className="p-3.5 font-black text-red-700 whitespace-nowrap">
-                                  Rp {Number(p.total_amount).toLocaleString("id-ID")}
+                                  Rp {Number(p.total_amount || 0).toLocaleString("id-ID")}
                                 </td>
                                 <td className="p-3.5 text-slate-600">{p.supplier || "-"}</td>
                                 <td className="p-3.5 text-center space-x-2">
@@ -1863,7 +2343,7 @@ export default function App() {
                                     onClick={() => {
                                       setEditingPurchase({
                                         ...p,
-                                        purchaseDate: p.purchase_date.slice(0, 10),
+                                        purchaseDate: formatDateInput(p.purchase_date),
                                         itemName: p.item_name,
                                         unitPrice: p.unit_price,
                                         totalAmount: p.total_amount,
@@ -1993,55 +2473,194 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 5: DATABASE BAHAN BAKU */}
+              {/* TAB 5: DATABASE BAHAN BAKU (SORTABLE + PAGINATION) */}
               {activeTab === "database" && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xs border border-slate-200 space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b pb-4">
                       <div>
                         <h3 className="text-xl font-bold text-slate-900">Database Master Bahan Baku</h3>
-                        <p className="text-xs text-slate-500">Harga beli supplier dan satuan master.</p>
+                        <p className="text-xs text-slate-500">Harga beli supplier, satuan master, dan kalkulasi biaya per unit.</p>
                       </div>
-                      <input type="text" placeholder="Cari bahan..." className="p-2.5 border rounded-xl text-xs" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          placeholder="Cari nama bahan / satuan..."
+                          className="pl-9 pr-3 py-2 border rounded-xl text-xs w-56 sm:w-64 outline-none focus:ring-2 focus:ring-amber-500"
+                          value={searchQuery}
+                          onChange={(e) => {
+                            setSearchQuery(e.target.value);
+                            setIngPage(1);
+                          }}
+                        />
+                      </div>
                     </div>
 
                     {isSuperadmin && (
                       <form onSubmit={handleAddIngredient} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm bg-slate-50 p-5 rounded-2xl border">
-                        <input type="text" placeholder="Nama Bahan" required className="lg:col-span-2 p-2.5 border rounded-xl bg-white" value={ingForm.name} onChange={(e) => setIngForm({ ...ingForm, name: e.target.value })} />
-                        <input type="number" placeholder="Harga Beli (Rp)" required className="p-2.5 border rounded-xl bg-white" value={ingForm.price} onChange={(e) => setIngForm({ ...ingForm, price: e.target.value })} />
+                        <input type="text" placeholder="Nama Bahan" required className="lg:col-span-2 p-2.5 border rounded-xl bg-white text-xs" value={ingForm.name} onChange={(e) => setIngForm({ ...ingForm, name: e.target.value })} />
+                        <input type="number" placeholder="Harga Beli (Rp)" required className="p-2.5 border rounded-xl bg-white text-xs" value={ingForm.price} onChange={(e) => setIngForm({ ...ingForm, price: e.target.value })} />
                         <div className="flex space-x-2">
-                          <input type="number" placeholder="Isi" required className="w-2/3 p-2.5 border rounded-xl bg-white" value={ingForm.size} onChange={(e) => setIngForm({ ...ingForm, size: e.target.value })} />
-                          <select className="w-1/3 p-2.5 border rounded-xl bg-white" value={ingForm.unit} onChange={(e) => setIngForm({ ...ingForm, unit: e.target.value })}>
+                          <input type="number" placeholder="Isi" required className="w-2/3 p-2.5 border rounded-xl bg-white text-xs" value={ingForm.size} onChange={(e) => setIngForm({ ...ingForm, size: e.target.value })} />
+                          <select className="w-1/3 p-2.5 border rounded-xl bg-white text-xs" value={ingForm.unit} onChange={(e) => setIngForm({ ...ingForm, unit: e.target.value })}>
                             <option value="gr">gr</option><option value="ml">ml</option><option value="set">set</option><option value="porsi">porsi</option>
                           </select>
                         </div>
-                        <button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl">+ Tambah Bahan</button>
+                        <button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs transition">+ Tambah Bahan</button>
                       </form>
                     )}
 
-                    <div className="overflow-x-auto rounded-2xl border">
+                    {/* Bar Info & Pengaturan Baris */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                      <div className="text-slate-600">
+                        Menampilkan <span className="font-bold text-slate-900">{processedIngredients.length}</span> bahan baku terdaftar
+                        {searchQuery && <span> (Pencarian: "{searchQuery}")</span>}
+                      </div>
+
+                      {/* Dropdown Jumlah Baris Per Halaman */}
+                      <div className="flex items-center space-x-2">
+                        <span className="text-slate-500">Tampilkan baris:</span>
+                        <select
+                          className="p-1.5 bg-white border border-slate-300 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-500"
+                          value={ingRowsPerPage}
+                          onChange={(e) => {
+                            setIngRowsPerPage(Number(e.target.value));
+                            setIngPage(1);
+                          }}
+                        >
+                          <option value={5}>5 baris</option>
+                          <option value={10}>10 baris</option>
+                          <option value={20}>20 baris</option>
+                          <option value={50}>50 baris</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* SORTABLE TABLE BAHAN BAKU */}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b">
-                          <tr><th className="p-3.5">Nama Bahan</th><th className="p-3.5">Harga Beli</th><th className="p-3.5">Isi</th><th className="p-3.5">Biaya/Satuan</th>{isSuperadmin && <th className="p-3.5 text-center">Aksi</th>}</tr>
+                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b text-xs select-none">
+                          <tr>
+                            <th onClick={() => handleSortIngredient("name")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Nama Bahan</span>
+                                {ingSortField === "name" ? (ingSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortIngredient("price")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Harga Beli</span>
+                                {ingSortField === "price" ? (ingSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortIngredient("size")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Isi / Kemasan</span>
+                                {ingSortField === "size" ? (ingSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            <th onClick={() => handleSortIngredient("unitCost")} className="p-3.5 cursor-pointer hover:bg-slate-200 transition">
+                              <div className="flex items-center space-x-1">
+                                <span>Biaya / Satuan Resep</span>
+                                {ingSortField === "unitCost" ? (ingSortOrder === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-amber-700" /> : <ArrowDown className="w-3.5 h-3.5 text-amber-700" />) : <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                              </div>
+                            </th>
+
+                            {isSuperadmin && <th className="p-3.5 text-center">Aksi</th>}
+                          </tr>
                         </thead>
-                        <tbody className="divide-y">
-                          {ingredients.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase())).map((ing) => (
-                            <tr key={ing.id} className="hover:bg-slate-50 text-xs md:text-sm">
-                              <td className="p-3.5 font-bold text-slate-800">{ing.name}</td>
-                              <td className="p-3.5 font-semibold">Rp {Number(ing.price).toLocaleString("id-ID")}</td>
-                              <td className="p-3.5">{ing.size} {ing.unit}</td>
-                              <td className="p-3.5 font-bold text-amber-700">Rp {(Number(ing.price) / Number(ing.size)).toFixed(2)}/{ing.unit}</td>
-                              {isSuperadmin && (
-                                <td className="p-3.5 text-center space-x-2">
-                                  <button onClick={() => { setEditingIngredient({ ...ing }); setIsEditModalOpen(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><Edit3 className="w-4 h-4" /></button>
-                                  <button onClick={() => handleDeleteIngredient(ing.id)} className="p-1.5 bg-red-50 text-red-600 rounded-lg"><Trash2 className="w-4 h-4" /></button>
-                                </td>
-                              )}
+
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {paginatedIngredients.length === 0 ? (
+                            <tr>
+                              <td colSpan={isSuperadmin ? 5 : 4} className="p-8 text-center text-slate-400 italic">
+                                Tidak ada data bahan baku yang cocok.
+                              </td>
                             </tr>
-                          ))}
+                          ) : (
+                            paginatedIngredients.map((ing) => {
+                              const unitPrice = (Number(ing.price) || 0) / (Number(ing.size) || 1);
+                              return (
+                                <tr key={ing.id} className="hover:bg-slate-50 transition">
+                                  <td className="p-3.5 font-bold text-slate-800">{ing.name}</td>
+                                  <td className="p-3.5 font-semibold text-slate-900">Rp {Number(ing.price).toLocaleString("id-ID")}</td>
+                                  <td className="p-3.5 text-slate-600">{ing.size} {ing.unit}</td>
+                                  <td className="p-3.5 font-bold text-amber-700 whitespace-nowrap">
+                                    Rp {unitPrice.toFixed(2)} / {ing.unit}
+                                  </td>
+                                  {isSuperadmin && (
+                                    <td className="p-3.5 text-center space-x-2">
+                                      <button onClick={() => { setEditingIngredient({ ...ing }); setIsEditModalOpen(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition" title="Edit Bahan">
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button onClick={() => handleDeleteIngredient(ing.id)} className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition" title="Hapus Bahan">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            })
+                          )}
                         </tbody>
                       </table>
                     </div>
+
+                    {/* PAGINATION CONTROLS BAHAN BAKU */}
+                    {processedIngredients.length > 0 && (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 text-xs text-slate-600">
+                        <div>
+                          Menampilkan bahan ke{" "}
+                          <span className="font-bold text-slate-900">{(ingPage - 1) * ingRowsPerPage + 1}</span> -{" "}
+                          <span className="font-bold text-slate-900">{Math.min(ingPage * ingRowsPerPage, processedIngredients.length)}</span>{" "}
+                          dari <span className="font-bold text-slate-900">{processedIngredients.length}</span> total
+                        </div>
+
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setIngPage(1)}
+                            disabled={ingPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Pertama"
+                          >
+                            <ChevronsLeft className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setIngPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={ingPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Sebelumnya"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+
+                          <span className="px-3 py-1 font-bold text-slate-800">
+                            Halaman {ingPage} / {totalIngPages}
+                          </span>
+
+                          <button
+                            onClick={() => setIngPage((prev) => Math.min(prev + 1, totalIngPages))}
+                            disabled={ingPage >= totalIngPages}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Selanjutnya"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setIngPage(totalIngPages)}
+                            disabled={ingPage >= totalIngPages}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition"
+                            title="Halaman Terakhir"
+                          >
+                            <ChevronsRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2061,14 +2680,14 @@ export default function App() {
                     )}
 
                     <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm bg-slate-50 p-5 rounded-2xl border">
-                      <input type="text" placeholder="Nama Lengkap" required className="p-2.5 border rounded-xl bg-white" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} />
-                      <input type="text" placeholder="Username" required className="p-2.5 border rounded-xl bg-white" value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} />
-                      <input type="password" placeholder="Password" required className="p-2.5 border rounded-xl bg-white" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
-                      <select className="p-2.5 border rounded-xl bg-white" value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                      <input type="text" placeholder="Nama Lengkap" required className="p-2.5 border rounded-xl bg-white text-xs" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} />
+                      <input type="text" placeholder="Username" required className="p-2.5 border rounded-xl bg-white text-xs" value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} />
+                      <input type="password" placeholder="Password" required className="p-2.5 border rounded-xl bg-white text-xs" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
+                      <select className="p-2.5 border rounded-xl bg-white text-xs" value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
                         <option value="admin">admin (Kasir & Resep)</option>
                         <option value="superadmin">superadmin</option>
                       </select>
-                      <button type="submit" className="bg-slate-900 text-white font-bold py-2.5 rounded-xl">+ Tambah Staf</button>
+                      <button type="submit" className="bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition">+ Tambah Staf</button>
                     </form>
 
                     <div className="overflow-x-auto rounded-2xl border">
@@ -2218,17 +2837,17 @@ export default function App() {
           <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4">
             <h3 className="font-bold text-lg">Edit Bahan Baku</h3>
             <form onSubmit={handleSaveEditIngredient} className="space-y-3 text-sm">
-              <input type="text" required className="w-full p-2.5 border rounded-xl" value={editingIngredient.name} onChange={(e) => setEditingIngredient({ ...editingIngredient, name: e.target.value })} />
-              <input type="number" required className="w-full p-2.5 border rounded-xl" value={editingIngredient.price} onChange={(e) => setEditingIngredient({ ...editingIngredient, price: e.target.value })} />
+              <input type="text" required className="w-full p-2.5 border rounded-xl text-xs" value={editingIngredient.name} onChange={(e) => setEditingIngredient({ ...editingIngredient, name: e.target.value })} />
+              <input type="number" required className="w-full p-2.5 border rounded-xl text-xs" value={editingIngredient.price} onChange={(e) => setEditingIngredient({ ...editingIngredient, price: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
-                <input type="number" required className="p-2.5 border rounded-xl" value={editingIngredient.size} onChange={(e) => setEditingIngredient({ ...editingIngredient, size: e.target.value })} />
-                <select className="p-2.5 border rounded-xl bg-white" value={editingIngredient.unit} onChange={(e) => setEditingIngredient({ ...editingIngredient, unit: e.target.value })}>
+                <input type="number" required className="p-2.5 border rounded-xl text-xs" value={editingIngredient.size} onChange={(e) => setEditingIngredient({ ...editingIngredient, size: e.target.value })} />
+                <select className="p-2.5 border rounded-xl bg-white text-xs" value={editingIngredient.unit} onChange={(e) => setEditingIngredient({ ...editingIngredient, unit: e.target.value })}>
                   <option value="gr">gr</option><option value="ml">ml</option><option value="set">set</option><option value="porsi">porsi</option>
                 </select>
               </div>
               <div className="flex space-x-2 pt-2">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl">Simpan</button>
+                <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl text-xs">Batal</button>
+                <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs">Simpan</button>
               </div>
             </form>
           </div>
@@ -2243,33 +2862,33 @@ export default function App() {
             <form onSubmit={handleSaveEditPurchase} className="space-y-3 text-sm">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal</label>
-                <input type="date" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.purchaseDate} onChange={(e) => setEditingPurchase({ ...editingPurchase, purchaseDate: e.target.value })} />
+                <input type="date" required className="w-full p-2.5 border rounded-xl text-xs" value={editingPurchase.purchaseDate} onChange={(e) => setEditingPurchase({ ...editingPurchase, purchaseDate: e.target.value })} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Nama Barang</label>
-                <input type="text" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.itemName} onChange={(e) => setEditingPurchase({ ...editingPurchase, itemName: e.target.value })} />
+                <input type="text" required className="w-full p-2.5 border rounded-xl text-xs" value={editingPurchase.itemName} onChange={(e) => setEditingPurchase({ ...editingPurchase, itemName: e.target.value })} />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Qty</label>
-                  <input type="number" step="any" required className="w-full p-2.5 border rounded-xl" value={editingPurchase.qty} onChange={(e) => setEditingPurchase({ ...editingPurchase, qty: e.target.value, totalAmount: (parseFloat(e.target.value || 0) * parseFloat(editingPurchase.unitPrice || 0)).toString() })} />
+                  <input type="number" step="any" required className="w-full p-2.5 border rounded-xl text-xs" value={editingPurchase.qty} onChange={(e) => setEditingPurchase({ ...editingPurchase, qty: e.target.value, totalAmount: (parseFloat(e.target.value || 0) * parseFloat(editingPurchase.unitPrice || 0)).toString() })} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Satuan</label>
-                  <input type="text" className="w-full p-2.5 border rounded-xl" value={editingPurchase.unit} onChange={(e) => setEditingPurchase({ ...editingPurchase, unit: e.target.value })} />
+                  <input type="text" className="w-full p-2.5 border rounded-xl text-xs" value={editingPurchase.unit} onChange={(e) => setEditingPurchase({ ...editingPurchase, unit: e.target.value })} />
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Total Biaya (Rp)</label>
-                <input type="number" required className="w-full p-2.5 border rounded-xl font-bold" value={editingPurchase.totalAmount} onChange={(e) => setEditingPurchase({ ...editingPurchase, totalAmount: e.target.value })} />
+                <input type="number" required className="w-full p-2.5 border rounded-xl font-bold text-xs" value={editingPurchase.totalAmount} onChange={(e) => setEditingPurchase({ ...editingPurchase, totalAmount: e.target.value })} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Supplier</label>
-                <input type="text" className="w-full p-2.5 border rounded-xl" value={editingPurchase.supplier} onChange={(e) => setEditingPurchase({ ...editingPurchase, supplier: e.target.value })} />
+                <input type="text" className="w-full p-2.5 border rounded-xl text-xs" value={editingPurchase.supplier} onChange={(e) => setEditingPurchase({ ...editingPurchase, supplier: e.target.value })} />
               </div>
               <div className="flex space-x-2 pt-2">
-                <button type="button" onClick={() => setIsEditPurchaseModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl">Simpan Perubahan</button>
+                <button type="button" onClick={() => setIsEditPurchaseModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl text-xs">Batal</button>
+                <button type="submit" className="flex-1 bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs">Simpan Perubahan</button>
               </div>
             </form>
           </div>
@@ -2282,16 +2901,16 @@ export default function App() {
           <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4">
             <h3 className="font-bold text-lg">Edit Pengguna Staf</h3>
             <form onSubmit={handleSaveEditUser} className="space-y-3 text-sm">
-              <input type="text" required className="w-full p-2.5 border rounded-xl" value={editingUser.name} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} />
-              <input type="text" required className="w-full p-2.5 border rounded-xl" value={editingUser.username} onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })} />
-              <input type="password" placeholder="Password Baru (Opsional)" className="w-full p-2.5 border rounded-xl" value={editingUser.password} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} />
-              <select className="w-full p-2.5 border rounded-xl bg-white" value={editingUser.role} onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}>
+              <input type="text" required className="w-full p-2.5 border rounded-xl text-xs" value={editingUser.name} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} />
+              <input type="text" required className="w-full p-2.5 border rounded-xl text-xs" value={editingUser.username} onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })} />
+              <input type="password" placeholder="Password Baru (Opsional)" className="w-full p-2.5 border rounded-xl text-xs" value={editingUser.password} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} />
+              <select className="w-full p-2.5 border rounded-xl bg-white text-xs" value={editingUser.role} onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}>
                 <option value="admin">admin (Kasir & Resep)</option>
                 <option value="superadmin">superadmin</option>
               </select>
               <div className="flex space-x-2 pt-2">
-                <button type="button" onClick={() => setIsEditUserModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 bg-slate-900 text-white font-bold py-2.5 rounded-xl">Simpan</button>
+                <button type="button" onClick={() => setIsEditUserModalOpen(false)} className="flex-1 bg-slate-100 py-2.5 rounded-xl text-xs">Batal</button>
+                <button type="submit" className="flex-1 bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs">Simpan</button>
               </div>
             </form>
           </div>
