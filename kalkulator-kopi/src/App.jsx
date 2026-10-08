@@ -1189,7 +1189,7 @@ export default function App() {
                 >
                   <div className="flex items-center space-x-3">
                     <ShoppingBag className="w-4 h-4" />
-                    <span>Belanja Bahan & Pengeluaran</span>
+                    <span>Belanja & Pengeluaran</span>
                   </div>
                   <span className="text-[10px] bg-slate-950/40 px-2 py-0.5 rounded-full font-bold">{purchasesList.length}</span>
                 </button>
